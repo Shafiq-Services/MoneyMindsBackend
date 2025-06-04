@@ -19,8 +19,8 @@ router.post('/verify-otp', verifyOtp);
 router.use(authMiddleware);
 router.get('/username-available', checkUsernameAvailability);
 router.get('/avatars', getAvatars);
-router.get('/set-username-avatar', setUsernameAndAvatar);
-router.get('/modify-avatar', modifyAvatar);
-router.get('/modify-username', modifyUsername);
+router.put('/set-username-avatar', setUsernameAndAvatar);
+router.put('/modify-avatar', modifyAvatar);
+router.put('/modify-username', modifyUsername);
 
 module.exports = router;
