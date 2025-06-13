@@ -8,6 +8,7 @@ const morgan = require("morgan");
 const config = require("./config/config");
 const connectDB = require("./config/db");
 const socketManager = require("./utils/socketManager");
+const socketTester = require("./utils/socketTester");
 
 const userRoutes = require("./routes/user");
 const subscriptionRoutes = require("./routes/subscription");
@@ -21,6 +22,11 @@ const server = http.createServer(app);
 
 // Initialize Socket.IO with our socket manager
 socketManager.initialize(server);
+
+// Initialize socket tester after a short delay to ensure socket server is ready
+setTimeout(() => {
+  socketTester.initialize();
+}, 1000);
 
 // Middleware
 app.use(cors());

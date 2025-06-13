@@ -8,6 +8,7 @@ const videoSchema = new mongoose.Schema({
     seasonNumber: Number,
     episodeNumber: Number,
     videoUrl: String,
+    originalVideoUrl: String,
     resolutions: [String],
     posterUrl: String,
     createdAt: { type: Date, default: Date.now }

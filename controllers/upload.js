@@ -3,44 +3,13 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const { uploadFile } = require('../utils/backblazeB2');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
-const { ProgressTracker, getProgress } = require('../utils/progressTracker');
+const { ProgressTracker } = require('../utils/progressTracker');
 const socketManager = require('../utils/socketManager');
+const Video = require('../models/video');
 
-// Configure multer for memory storage with progress tracking
+// Configure multer for memory storage
 const storage = multer.memoryStorage();
 
-// Custom multer setup with progress tracking
-const createProgressMulter = (progressTracker) => {
-  return multer({
-    storage: storage,
-    limits: {
-      fileSize: 500 * 1024 * 1024, // 500MB limit for large files
-    },
-    fileFilter: (req, file, cb) => {
-      if (req.path.includes('/image')) {
-        // Image upload validation
-        const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-        if (allowedImageTypes.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(new Error('Only image files (JPEG, PNG, GIF, WebP) are allowed'), false);
-        }
-      } else if (req.path.includes('/video')) {
-        // Video upload validation
-        const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
-        if (allowedVideoTypes.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(new Error('Only video files (MP4, AVI, MOV, WMV, FLV, WebM, MKV) are allowed'), false);
-        }
-      } else {
-        cb(new Error('Invalid upload endpoint'), false);
-      }
-    }
-  });
-};
-
-// Standard upload middleware for routes
 const upload = multer({
   storage: storage,
   limits: {
@@ -48,6 +17,7 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     if (req.path.includes('/image')) {
+      // Image upload validation
       const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
       if (allowedImageTypes.includes(file.mimetype)) {
         cb(null, true);
@@ -55,6 +25,7 @@ const upload = multer({
         cb(new Error('Only image files (JPEG, PNG, GIF, WebP) are allowed'), false);
       }
     } else if (req.path.includes('/video')) {
+      // Video upload validation
       const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
       if (allowedVideoTypes.includes(file.mimetype)) {
         cb(null, true);
@@ -102,6 +73,7 @@ const uploadImage = async (req, res) => {
       return res.status(200).json({
         status: true,
         message: 'Image uploaded successfully',
+        imageId: imageId,
         ...result,
       });
 
@@ -129,114 +101,79 @@ const uploadVideo = async (req, res) => {
       return res.status(400).json({ status: false, message: 'No video file provided' });
     }
 
-    // Return immediately with progress ID for tracking
-    res.status(202).json({
-      status: true,
-      message: 'Video upload initiated. Processing will complete shortly.',
-      videoId: videoId,
-      progressId: videoId,
-      processingStatus: 'in_progress',
+    // Store original video file
+    const fileExtension = path.extname(req.file.originalname);
+    const originalFileName = `videos/${videoId}/original${fileExtension}`;
+    
+    // Upload original video file
+    console.log('📤 Starting original video upload...');
+    progressTracker.updateUploadProgress(0);
+    const originalUploadResult = await uploadFile(originalFileName, req.file.buffer, (progressData) => {
+      if (progressData && progressData.percent) {
+        console.log(`📤 Upload Progress: ${progressData.percent}%`);
+        progressTracker.updateUploadProgress(progressData.percent);
+      }
+    });
+    progressTracker.updateUploadProgress(100);
+    console.log('✅ Original video upload complete');
+
+    // Create video document with original URL
+    const video = await Video.create({
+      videoUrl: originalUploadResult.fileUrl, // Temporary URL until transcoding is done
+      originalVideoUrl: originalUploadResult.fileUrl,
+      type: 'film', // Default type, can be updated later
     });
 
-    // Process video asynchronously with real progress tracking
+    // Start transcoding
     try {
-      // Start with actual file size for real progress
-      const fileSize = req.file.size;
-      progressTracker.updateUploadProgress(0);
-      
-      // Since multer already loaded the file into memory, we consider upload "complete"
-      // In a real streaming scenario, this would track actual bytes received
-      progressTracker.updateUploadProgress(100);
-      
-      // Now start real transcoding with progress
+      console.log('🔄 Starting video transcoding...');
       const transcodeResult = await transcodeToHLS(req.file.buffer, videoId, progressTracker);
+      console.log('✅ Video transcoding complete');
       
-      progressTracker.complete({
+      // Update video document with transcoded URL and resolutions
+      await Video.findByIdAndUpdate(video._id, {
         videoUrl: transcodeResult.videoUrl,
-        resolutions: transcodeResult.resolutions,
-        duration: transcodeResult.duration,
-        videoId: videoId,
-        fileSize: fileSize
+        resolutions: transcodeResult.resolutions
       });
       
-      console.log(`Video ${videoId} processed successfully:`, transcodeResult);
+      // Complete the progress tracking
+      progressTracker.complete({
+        videoUrl: transcodeResult.videoUrl,
+        originalVideoUrl: originalUploadResult.fileUrl,
+        resolutions: transcodeResult.resolutions,
+        videoId: video._id
+      });
+
+      // Return complete result after everything is done
+      return res.status(200).json({
+        status: true,
+        message: 'Video uploaded and processed successfully',
+        videoId: video._id,
+        video: {
+          id: video._id,
+          videoUrl: transcodeResult.videoUrl,
+          originalVideoUrl: originalUploadResult.fileUrl,
+          resolutions: transcodeResult.resolutions
+        }
+      });
       
     } catch (transcodeError) {
-      console.error(`Video ${videoId} processing failed:`, transcodeError.message);
+      console.error('❌ Transcoding failed:', transcodeError.message);
       progressTracker.fail(transcodeError);
+      return res.status(500).json({
+        status: false,
+        message: 'Failed to process video',
+        error: transcodeError.message
+      });
     }
-
+    
   } catch (err) {
+    console.error('❌ Upload failed:', err.message);
     progressTracker.fail(err);
     return res.status(500).json({
       status: false,
-      message: 'Failed to initiate video upload',
-      error: err.message,
-    });
-  }
-};
-
-const getVideoStatus = async (req, res) => {
-  try {
-    const { videoId } = req.query;
-
-    if (!videoId) {
-      return res.status(400).json({ status: false, message: 'Video ID is required' });
-    }
-
-    // Get progress from tracker
-    const progress = getProgress(videoId);
-    
-    if (!progress) {
-      return res.status(404).json({ 
-        status: false, 
-        message: 'Video not found or processing has been completed and cleaned up' 
-      });
-    }
-
-    return res.status(200).json({
-      status: true,
-      message: 'Video status retrieved',
-      ...progress
-    });
-
-  } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to get video status',
-      error: err.message,
-    });
-  }
-};
-
-const getUploadProgress = async (req, res) => {
-  try {
-    const { progressId } = req.params;
-
-    if (!progressId) {
-      return res.status(400).json({ status: false, message: 'Progress ID is required' });
-    }
-
-    const progress = getProgress(progressId);
-    
-    if (!progress) {
-      return res.status(404).json({ 
-        status: false, 
-        message: 'Progress not found or upload has been completed and cleaned up' 
-      });
-    }
-
-    return res.status(200).json({
-      status: true,
-      message: 'Progress retrieved successfully',
-      progress: progress
-    });
-
-  } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to get upload progress',
-      error: err.message,
+      message: 'Failed to upload video',
+      error: err.message
     });
   }
 };
@@ -245,6 +182,4 @@ module.exports = {
   upload,
   uploadImage,
   uploadVideo,
-  getVideoStatus,
-  getUploadProgress,
 }; 

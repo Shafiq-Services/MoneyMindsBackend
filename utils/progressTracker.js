@@ -92,9 +92,6 @@ class ProgressTracker {
 
   cleanup() {
     progressStore.delete(this.id);
-    if (this.socketManager) {
-      this.socketManager.leaveRoom(this.id);
-    }
   }
 
   _updateStore() {
@@ -103,7 +100,8 @@ class ProgressTracker {
 
   _emitProgress() {
     if (this.socketManager) {
-      this.socketManager.emitToRoom(`progress_${this.id}`, 'uploadProgress', this.progress);
+      // Emit to all connected clients
+      this.socketManager.emitToAll('uploadProgress', this.progress);
     }
   }
 }
