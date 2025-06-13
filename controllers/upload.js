@@ -140,11 +140,10 @@ const uploadVideo = async (req, res) => {
       progressTracker.complete({
         videoUrl: transcodeResult.videoUrl,
         originalVideoUrl: originalUploadResult.fileUrl,
-        resolutions: transcodeResult.resolutions,
         videoId: video._id
       });
 
-      // Return complete result after everything is done
+      // Return complete result after everything is done (no resolutions)
       return res.status(200).json({
         status: true,
         message: 'Video uploaded and processed successfully',
@@ -152,9 +151,8 @@ const uploadVideo = async (req, res) => {
         video: {
           id: video._id,
           videoUrl: transcodeResult.videoUrl,
-          originalVideoUrl: originalUploadResult.fileUrl,
-          resolutions: transcodeResult.resolutions
-        }
+          originalVideoUrl: originalUploadResult.fileUrl
+        },
       });
       
     } catch (transcodeError) {

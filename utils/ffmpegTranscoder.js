@@ -2,6 +2,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 const fs = require('fs');
 const { uploadFile } = require('./backblazeB2');
+const { getB2S3Url } = require('./b2Url');
 
 const getVideoResolution = (videoBuffer) => {
   return new Promise((resolve, reject) => {
@@ -171,7 +172,7 @@ const transcodeToHLS = async (videoBuffer, videoId, progressTracker = null) => {
     // Clean up temp files
     fs.rmSync(tempDir, { recursive: true, force: true });
 
-    const videoUrl = `https://f000.backblazeb2.com/file/${process.env.B2_BUCKET_NAME}/videos/${videoId}/master.m3u8`;
+    const videoUrl = getB2S3Url(`videos/${videoId}/master.m3u8`);
 
     return {
       videoUrl,

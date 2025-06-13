@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { postVideo } = require('../controllers/video');
+const { addSeries } = require('../controllers/series');
 const authMiddleware = require('../middlewares/auth');
 
-// POST /api/video
+// POST /api/series
 router.use(authMiddleware);
-router.post('/add-video', postVideo);
+router.post('/add-series', addSeries);
 
-module.exports = router;
+module.exports = router; 

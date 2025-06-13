@@ -1,4 +1,5 @@
 const B2 = require('backblaze-b2');
+const { getB2S3Url } = require('./b2Url');
 
 const b2 = new B2({
   applicationKeyId: process.env.B2_KEY_ID,
@@ -44,8 +45,8 @@ const uploadFile = async (fileName, fileBuffer, progressCallback = null) => {
 
     const response = await b2.uploadFile(uploadOptions);
 
-    // Generate public URL
-    const fileUrl = `https://f000.backblazeb2.com/file/${process.env.B2_BUCKET_NAME}/${fileName}`;
+    // Generate public S3 URL
+    const fileUrl = getB2S3Url(fileName);
     
     return {
       fileId: response.data.fileId,
