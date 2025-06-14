@@ -17,6 +17,7 @@ const chatRoutes = require("./routes/chat");
 const uploadRoutes = require("./routes/upload");
 const uploadProgressRoutes = require("./routes/uploadProgress");
 const seriesRoutes = require("./routes/series");
+const watchProgressRoutes = require("./routes/watchProgress");
 
 const app = express();
 const server = http.createServer(app);
@@ -46,6 +47,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/upload-progress", uploadProgressRoutes);
 app.use("/api/series", seriesRoutes);
+app.use("/api/watch-progress", watchProgressRoutes);
 
 // Base route
 app.get("/", (req, res) => {
