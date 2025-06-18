@@ -5,6 +5,7 @@ const { uploadFile } = require('../utils/backblazeB2');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
 const { ProgressTracker, getProgress } = require('../utils/progressTracker');
 const socketManager = require('../utils/socketManager');
+const { successResponse, errorResponse } = require('../utils/apiResponse');
 
 const uploadImageWithProgress = (req, res) => {
   const imageId = uuidv4();
@@ -32,7 +33,7 @@ const uploadImageWithProgress = (req, res) => {
       const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
       if (!allowedImageTypes.includes(mimeType)) {
         progressTracker.fail(new Error('Only image files (JPEG, PNG, GIF, WebP) are allowed'));
-        return res.status(400).json({ status: false, message: 'Invalid file type' });
+        return errorResponse(res, 400, 'Invalid file type');
       }
 
       fileExtension = path.extname(filename);
@@ -78,7 +79,7 @@ const uploadImageWithProgress = (req, res) => {
 
     bb.on('error', (err) => {
       progressTracker.fail(err);
-      res.status(400).json({ status: false, message: err.message });
+      errorResponse(res, 400, err.message);
     });
 
     bb.on('finish', () => {
@@ -94,11 +95,7 @@ const uploadImageWithProgress = (req, res) => {
 
   } catch (err) {
     progressTracker.fail(err);
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to initiate image upload',
-      error: err.message,
-    });
+    return errorResponse(res, 500, 'Failed to initiate image upload', err.message);
   }
 };
 
@@ -126,7 +123,7 @@ const uploadVideoWithProgress = (req, res) => {
       const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
       if (!allowedVideoTypes.includes(mimeType)) {
         progressTracker.fail(new Error('Only video files are allowed'));
-        return res.status(400).json({ status: false, message: 'Invalid file type' });
+        return errorResponse(res, 400, 'Invalid file type');
       }
 
       fileName = filename;
@@ -175,7 +172,7 @@ const uploadVideoWithProgress = (req, res) => {
 
     bb.on('error', (err) => {
       progressTracker.fail(err);
-      res.status(400).json({ status: false, message: err.message });
+      errorResponse(res, 400, err.message);
     });
 
     bb.on('finish', () => {
@@ -192,11 +189,7 @@ const uploadVideoWithProgress = (req, res) => {
 
   } catch (err) {
     progressTracker.fail(err);
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to initiate video upload',
-      error: err.message,
-    });
+    return errorResponse(res, 500, 'Failed to initiate video upload', err.message);
   }
 };
 
@@ -205,16 +198,13 @@ const getUploadProgress = async (req, res) => {
     const { progressId } = req.params;
 
     if (!progressId) {
-      return res.status(400).json({ status: false, message: 'Progress ID is required' });
+      return errorResponse(res, 400, 'Progress ID is required');
     }
 
     const progress = getProgress(progressId);
     
     if (!progress) {
-      return res.status(404).json({ 
-        status: false, 
-        message: 'Progress not found or upload has been completed and cleaned up' 
-      });
+      return errorResponse(res, 404, 'Progress not found or upload has been completed and cleaned up');
     }
 
     return res.status(200).json({
@@ -224,11 +214,7 @@ const getUploadProgress = async (req, res) => {
     });
 
   } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to get upload progress',
-      error: err.message,
-    });
+    return errorResponse(res, 500, 'Failed to get upload progress', err.message);
   }
 };
 

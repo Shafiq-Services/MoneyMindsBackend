@@ -19,6 +19,10 @@ const uploadRoutes = require("./routes/upload");
 const uploadProgressRoutes = require("./routes/uploadProgress");
 const seriesRoutes = require("./routes/series");
 const watchProgressRoutes = require("./routes/watchProgress");
+const campusRoutes = require("./routes/campus");
+const courseRoutes = require("./routes/course");
+const moduleRoutes = require("./routes/module");
+const lessonRoutes = require("./routes/lesson");
 
 const app = express();
 const server = http.createServer(app);
@@ -50,6 +54,10 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/upload-progress", uploadProgressRoutes);
 app.use("/api/series", seriesRoutes);
 app.use("/api/watch-progress", watchProgressRoutes);
+app.use("/api/campus", campusRoutes);
+app.use("/api/course", courseRoutes);
+app.use("/api/module", moduleRoutes);
+app.use("/api/lesson", lessonRoutes);
 
 // Base route
 app.get("/", (req, res) => {

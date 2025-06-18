@@ -4,6 +4,7 @@ const WatchProgress = require('../models/watch-progress');
 const axios = require('axios');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
+const { successResponse, errorResponse } = require('../utils/apiResponse');
 
 // Helper to fetch resolutions from HLS master playlist
 async function fetchResolutionsFromM3U8(masterUrl) {
@@ -39,18 +40,18 @@ const postVideo = async (req, res) => {
     } = req.body;
 
     if (!videoUrl || !type) {
-      return res.status(400).json({ status: false, message: 'videoUrl and type are required.' });
+      return errorResponse(res, 400, 'videoUrl and type are required.');
     }
 
     let episodeNumber = undefined;
     if (type === 'episode') {
       if (!seriesId || !seasonNumber) {
-        return res.status(400).json({ status: false, message: 'seriesId and seasonNumber are required for episodes.' });
+        return errorResponse(res, 400, 'seriesId and seasonNumber are required for episodes.');
       }
       // Validate seriesId exists
       const seriesExists = await Series.exists({ _id: seriesId });
       if (!seriesExists) {
-        return res.status(400).json({ status: false, message: 'Invalid seriesId: series not found.' });
+        return errorResponse(res, 400, 'Invalid seriesId: series not found.');
       }
       // Find the current max episodeNumber in this season
       const lastEpisode = await Video.findOne({
@@ -95,7 +96,7 @@ const postVideo = async (req, res) => {
 
     return res.status(201).json({ status: true, message: 'Video added successfully.', video: orderedVideo });
   } catch (err) {
-    return res.status(500).json({ status: false, message: 'Failed to add video.', error: err.message });
+    return errorResponse(res, 500, 'Failed to add video.', err.message);
   }
 };
 
@@ -251,10 +252,7 @@ const getRandomSuggestion = async (req, res) => {
     }
 
     if (!suggestion) {
-      return res.status(404).json({
-        status: false,
-        message: 'No content available for suggestion.'
-      });
+      return errorResponse(res, 404, 'No content available for suggestion.');
     }
 
     return res.status(200).json({
@@ -263,11 +261,7 @@ const getRandomSuggestion = async (req, res) => {
       suggestion
     });
   } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to get random suggestion.',
-      error: err.message
-    });
+    return errorResponse(res, 500, 'Failed to get random suggestion.', err.message);
   }
 };
 

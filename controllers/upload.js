@@ -6,6 +6,7 @@ const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
 const { ProgressTracker } = require('../utils/progressTracker');
 const socketManager = require('../utils/socketManager');
 const Video = require('../models/video');
+const { successResponse, errorResponse } = require('../utils/apiResponse');
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -41,7 +42,7 @@ const upload = multer({
 const uploadImage = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ status: false, message: 'No image file provided' });
+      return errorResponse(res, 400, 'No image file provided');
     }
 
     const imageId = uuidv4();
@@ -83,11 +84,7 @@ const uploadImage = async (req, res) => {
     }
 
   } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to upload image',
-      error: err.message,
-    });
+    return errorResponse(res, 500, 'Failed to upload image', err.message);
   }
 };
 
@@ -98,7 +95,7 @@ const uploadVideo = async (req, res) => {
   try {
     if (!req.file) {
       progressTracker.fail(new Error('No video file provided'));
-      return res.status(400).json({ status: false, message: 'No video file provided' });
+      return errorResponse(res, 400, 'No video file provided');
     }
 
     // Store original video file
@@ -158,21 +155,13 @@ const uploadVideo = async (req, res) => {
     } catch (transcodeError) {
       console.error('❌ Transcoding failed:', transcodeError.message);
       progressTracker.fail(transcodeError);
-      return res.status(500).json({
-        status: false,
-        message: 'Failed to process video',
-        error: transcodeError.message
-      });
+      return errorResponse(res, 500, 'Failed to process video', transcodeError.message);
     }
     
   } catch (err) {
     console.error('❌ Upload failed:', err.message);
     progressTracker.fail(err);
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to upload video',
-      error: err.message
-    });
+    return errorResponse(res, 500, 'Failed to upload video', err.message);
   }
 };
 

@@ -2,6 +2,7 @@ const Video = require('../models/video');
 const WatchProgress = require('../models/watch-progress');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
+const { successResponse, errorResponse } = require('../utils/apiResponse');
 
 const getRandomFilms = async (req, res) => {
   try {
@@ -64,11 +65,7 @@ const getRandomFilms = async (req, res) => {
       }
     });
   } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to get random films.',
-      error: err.message
-    });
+    return errorResponse(res, 500, 'Failed to get random films.', err.message);
   }
 };
 

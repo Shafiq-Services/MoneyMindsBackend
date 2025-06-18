@@ -3,6 +3,7 @@ const Video = require('../models/video');
 const WatchProgress = require('../models/watch-progress');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
+const { successResponse, errorResponse } = require('../utils/apiResponse');
 
 // POST /api/series
 // Body: { title, description, posterUrl }
@@ -10,12 +11,12 @@ const addSeries = async (req, res) => {
   try {
     const { title, description, posterUrl } = req.body;
     if (!title) {
-      return res.status(400).json({ status: false, message: 'title is required.' });
+      return errorResponse(res, 400, 'title is required.');
     }
     const series = await Series.create({ title, description, posterUrl });
     return res.status(201).json({ status: true, message: 'Series created successfully.', series });
   } catch (err) {
-    return res.status(500).json({ status: false, message: 'Failed to create series.', error: err.message });
+    return errorResponse(res, 500, 'Failed to create series.', err.message);
   }
 };
 
@@ -131,11 +132,7 @@ const getRandomSeries = async (req, res) => {
       }
     });
   } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: 'Failed to get random series.',
-      error: err.message
-    });
+    return errorResponse(res, 500, 'Failed to get random series.', err.message);
   }
 };
 
