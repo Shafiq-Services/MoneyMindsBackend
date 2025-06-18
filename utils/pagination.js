@@ -6,7 +6,7 @@
  * @returns {Object} - Parsed pagination params
  */
 const parsePaginationParams = (query) => {
-  const page = Math.max(1, parseInt(query.page) || 1);
+  const page = Math.max(1, parseInt(query.pageNo) || 1);
   const perPage = Math.min(50, Math.max(1, parseInt(query.itemsPerPage) || 10)); // Max 50 items per page
   const skip = (page - 1) * perPage;
   
