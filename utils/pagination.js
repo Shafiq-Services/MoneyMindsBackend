@@ -105,8 +105,42 @@ const getRandomSingle = async (model, filter = {}, populate = []) => {
   return document;
 };
 
+/**
+ * Generic pagination for Mongoose queries
+ * @param {Object} model - Mongoose model
+ * @param {Object} filter - MongoDB filter object
+ * @param {Object} options - { pageNo, itemsPerPage, sort, populate }
+ * @returns {Object} - { results, pagination }
+ */
+const paginateQuery = async (model, filter = {}, options = {}) => {
+  const page = Math.max(1, parseInt(options.pageNo) || 1);
+  const perPage = Math.min(50, Math.max(1, parseInt(options.itemsPerPage) || 10));
+  const skip = (page - 1) * perPage;
+  let query = model.find(filter);
+  if (options.sort) query = query.sort(options.sort);
+  if (options.populate) query = query.populate(options.populate);
+  query = query.skip(skip).limit(perPage);
+  const [results, totalCount] = await Promise.all([
+    query.exec(),
+    model.countDocuments(filter)
+  ]);
+  const totalPages = Math.ceil(totalCount / perPage);
+  return {
+    results,
+    pagination: {
+      page,
+      perPage,
+      totalCount,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
+    }
+  };
+};
+
 module.exports = {
   parsePaginationParams,
   getRandomPaginated,
-  getRandomSingle
+  getRandomSingle,
+  paginateQuery
 }; 
