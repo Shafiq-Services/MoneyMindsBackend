@@ -4,6 +4,7 @@ const Module = require('../models/module');
 const Lesson = require('../models/lesson');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { isUserInCampus, getCampusWithMembershipCheck } = require('../utils/campusHelpers');
+const socketManager = require('../utils/socketManager');
 
 const createCampus = async (req, res) => {
   try {
@@ -230,7 +231,8 @@ const getCampusById = async (req, res) => {
             campusId: campus._id,
             name: lesson.name,
             videoUrl: lesson.videoUrl,
-            createdAt: lesson.createdAt
+            createdAt: lesson.createdAt,
+            watchedProgress: socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : 0
           }));
 
         return {

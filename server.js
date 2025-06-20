@@ -10,20 +10,6 @@ const connectDB = require("./config/db");
 const socketManager = require("./utils/socketManager");
 const socketTester = require("./utils/socketTester");
 
-const userRoutes = require("./routes/user");
-const subscriptionRoutes = require("./routes/subscription");
-const videoRoutes = require("./routes/video");
-const filmRoutes = require("./routes/film");
-const chatRoutes = require("./routes/chat");
-const uploadRoutes = require("./routes/upload");
-const uploadProgressRoutes = require("./routes/uploadProgress");
-const seriesRoutes = require("./routes/series");
-const watchProgressRoutes = require("./routes/watchProgress");
-const campusRoutes = require("./routes/campus");
-const courseRoutes = require("./routes/course");
-const moduleRoutes = require("./routes/module");
-const lessonRoutes = require("./routes/lesson");
-
 const app = express();
 const server = http.createServer(app);
 
@@ -45,19 +31,18 @@ app.use(morgan("dev"));
 connectDB();
 
 // Routes
-app.use("/api/user", userRoutes);
-app.use("/api/subscription", subscriptionRoutes);
-app.use("/api/video", videoRoutes);
-app.use("/api/film", filmRoutes);
-app.use("/api/chat", chatRoutes);
-app.use("/api/upload", uploadRoutes);
-app.use("/api/upload-progress", uploadProgressRoutes);
-app.use("/api/series", seriesRoutes);
-app.use("/api/watch-progress", watchProgressRoutes);
-app.use("/api/campus", campusRoutes);
-app.use("/api/course", courseRoutes);
-app.use("/api/module", moduleRoutes);
-app.use("/api/lesson", lessonRoutes);
+app.use("/api/user", require('./routes/user'));
+app.use("/api/subscription", require('./routes/subscription'));
+app.use("/api/video", require('./routes/video'));
+app.use("/api/film", require('./routes/film'));
+app.use("/api/chat", require('./routes/chat'));
+app.use("/api/upload", require('./routes/upload'));
+app.use("/api/upload-progress", require('./routes/uploadProgress'));
+app.use("/api/series", require('./routes/series'));
+app.use("/api/campus", require('./routes/campus'));
+app.use("/api/course", require('./routes/course'));
+app.use("/api/module", require('./routes/module'));
+app.use("/api/lesson", require('./routes/lesson'));
 
 // Base route
 app.get("/", (req, res) => {

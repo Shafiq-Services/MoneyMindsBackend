@@ -3,6 +3,7 @@ const Module = require('../models/module');
 const Course = require('../models/course');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
+const socketManager = require('../utils/socketManager');
 
 const createLesson = async (req, res) => {
   try {
@@ -32,6 +33,7 @@ const createLesson = async (req, res) => {
       campusId: module.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      watchedProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : 0,
       createdAt: lesson.createdAt
     };
 
@@ -74,6 +76,7 @@ const editLesson = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      watchedProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : 0,
       createdAt: lesson.createdAt
     };
 
@@ -138,6 +141,7 @@ const listLessonsByModule = async (req, res) => {
       campusId: module.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      watchedProgress: socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : 0,
       createdAt: lesson.createdAt
     }));
 
@@ -185,6 +189,7 @@ const getLessonById = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      watchedProgress: socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : 0,
       createdAt: lesson.createdAt
     };
 

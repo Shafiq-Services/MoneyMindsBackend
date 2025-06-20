@@ -1,10 +1,10 @@
 const Video = require('../models/video');
 const Series = require('../models/series');
-const WatchProgress = require('../models/watch-progress');
 const axios = require('axios');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
+const socketManager = require('../utils/socketManager');
 
 // Helper to fetch resolutions from HLS master playlist
 async function fetchResolutionsFromM3U8(masterUrl) {
@@ -91,6 +91,7 @@ const postVideo = async (req, res) => {
       posterUrl: videoObj.posterUrl,
       createdAt: videoObj.createdAt,
       resolutions: videoObj.resolutions,
+      watchedProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : 0,
       ...Object.fromEntries(Object.entries(videoObj).filter(([k]) => !['_id','title','description','type','videoUrl','posterUrl','createdAt','resolutions'].includes(k)))
     };
 
@@ -99,10 +100,6 @@ const postVideo = async (req, res) => {
     return errorResponse(res, 500, 'Failed to add video.', err.message);
   }
 };
-
-
-
-
 
 const getRandomSuggestion = async (req, res) => {
   try {

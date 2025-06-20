@@ -3,6 +3,7 @@ const Course = require('../models/course');
 const Lesson = require('../models/lesson');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
+const socketManager = require('../utils/socketManager');
 
 const createModule = async (req, res) => {
   try {
@@ -146,7 +147,8 @@ const listModulesByCourse = async (req, res) => {
         campusId: course.campusId,
         name: lesson.name,
         videoUrl: lesson.videoUrl,
-        createdAt: lesson.createdAt
+        createdAt: lesson.createdAt,
+        watchedProgress: socketManager.videoProgress[userId][lesson._id] || 0
       })),
       createdAt: module.createdAt
     }));
@@ -191,7 +193,8 @@ const getModuleById = async (req, res) => {
       campusId: module.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
-      createdAt: lesson.createdAt
+      createdAt: lesson.createdAt,
+      watchedProgress: socketManager.videoProgress[userId][lesson._id] || 0
     }));
 
     // Structure response in organized format

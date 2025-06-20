@@ -3,6 +3,7 @@ const Module = require('../models/module');
 const Lesson = require('../models/lesson');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
+const socketManager = require('../utils/socketManager');
 
 const createCourse = async (req, res) => {
   try {
@@ -183,7 +184,8 @@ const getCourseById = async (req, res) => {
         campusId: course.campusId._id,
         name: lesson.name,
         videoUrl: lesson.videoUrl,
-        createdAt: lesson.createdAt
+        createdAt: lesson.createdAt,
+        watchedProgress: socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : 0
       })),
       createdAt: module.createdAt
     }));

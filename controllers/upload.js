@@ -137,7 +137,8 @@ const uploadVideo = async (req, res) => {
       progressTracker.complete({
         videoUrl: transcodeResult.videoUrl,
         originalVideoUrl: originalUploadResult.fileUrl,
-        videoId: video._id
+        videoId: video._id,
+        watchedProgress: socketManager.videoProgress[userId][videoId] || 0
       });
 
       // Return complete result after everything is done (no resolutions)
@@ -148,7 +149,8 @@ const uploadVideo = async (req, res) => {
         video: {
           id: video._id,
           videoUrl: transcodeResult.videoUrl,
-          originalVideoUrl: originalUploadResult.fileUrl
+          originalVideoUrl: originalUploadResult.fileUrl,
+          watchedProgress: socketManager.videoProgress[userId][videoId] || 0
         },
       });
       

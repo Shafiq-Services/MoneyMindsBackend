@@ -13,6 +13,8 @@ class SocketManager {
     this.userContext = {};
     // In-memory unread state: { [userId]: { [channelId]: lastReadAt } }
     this.lastReadAt = {};
+    // Add in-memory video progress tracking: { [userId]: { [videoId]: progress } }
+    this.videoProgress = {};
   }
 
   initialize(server) {
@@ -70,6 +72,13 @@ class SocketManager {
         // Optionally clean up userContext
         if (this.userContext[userId]) {
           delete this.userContext[userId].socketId;
+        }
+      });
+      // Video progress event
+      socket.on('video-progress', (data) => {
+        if (data && data.videoId && typeof data.progress === 'number') {
+          if (!this.videoProgress[userId]) this.videoProgress[userId] = {};
+          this.videoProgress[userId][data.videoId] = data.progress;
         }
       });
     });
