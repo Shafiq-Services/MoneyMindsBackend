@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema({
   phone: String,
   username: { type: String, unique: true, sparse: true },
   avatar: { type: String },
+  stripeCustomerId: { type: String },
 });
 
 module.exports = mongoose.model('User', userSchema);

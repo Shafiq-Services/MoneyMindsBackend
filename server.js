@@ -9,6 +9,8 @@ const config = require("./config/config");
 const connectDB = require("./config/db");
 const socketManager = require("./utils/socketManager");
 const socketTester = require("./utils/socketTester");
+const subscriptionController = require('./controllers/subscriptionController');
+const subscriptionRoutes = require('./routes/subscription');
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +23,10 @@ setTimeout(() => {
   socketTester.initialize();
 }, 1000);
 
+// Stripe webhook endpoint
+// This route must be before `express.json()` to receive the raw body
+app.post('/api/subscription/webhook', express.raw({type: 'application/json'}), subscriptionController.handleStripeWebhook);
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -32,7 +38,7 @@ connectDB();
 
 // Routes
 app.use("/api/user", require('./routes/user'));
-app.use("/api/subscription", require('./routes/subscription'));
+app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/video", require('./routes/video'));
 app.use("/api/film", require('./routes/film'));
 app.use("/api/chat", require('./routes/chat'));

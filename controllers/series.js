@@ -1,6 +1,5 @@
 const Series = require('../models/series');
 const Video = require('../models/video');
-const WatchProgress = require('../models/watch-progress');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
@@ -23,9 +22,8 @@ const addSeries = async (req, res) => {
 const getRandomSeries = async (req, res) => {
   try {
     const pagination = parsePaginationParams(req.query);
-    const userId = new mongoose.Types.ObjectId(req.userId);
     
-    // Use aggregation for efficient random sampling with episode lookup and watch progress
+    // Use aggregation for efficient random sampling with episode lookup
     const pipeline = [
       { $sample: { size: pagination.perPage * 10 } }, // Sample more for better randomness
       { $skip: pagination.skip },
@@ -46,36 +44,6 @@ const getRandomSeries = async (req, res) => {
               }
             },
             {
-              $lookup: {
-                from: 'watchprogresses',
-                let: { videoId: '$_id' },
-                pipeline: [
-                  {
-                    $match: {
-                      $expr: {
-                        $and: [
-                          { $eq: ['$videoId', '$$videoId'] },
-                          { $eq: ['$userId', userId] }
-                        ]
-                      }
-                    }
-                  }
-                ],
-                as: 'watchProgressData'
-              }
-            },
-            {
-              $addFields: {
-                watchProgress: {
-                  $cond: {
-                    if: { $gt: [{ $size: '$watchProgressData' }, 0] },
-                    then: { $arrayElemAt: ['$watchProgressData.progress', 0] },
-                    else: 0
-                  }
-                }
-              }
-            },
-            {
               $group: {
                 _id: '$seasonNumber',
                 episodes: {
@@ -87,8 +55,7 @@ const getRandomSeries = async (req, res) => {
                     videoUrl: '$videoUrl',
                     posterUrl: '$posterUrl',
                     resolutions: '$resolutions',
-                    createdAt: '$createdAt',
-                    watchProgress: '$watchProgress'
+                    createdAt: '$createdAt'
                   }
                 }
               }

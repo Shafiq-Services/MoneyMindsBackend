@@ -21,8 +21,15 @@ const signUp = async (req, res) => {
     }
 
     await User.create({ email, firstName, lastName, phone });
-    return successResponse(res, 201, `Account successfully created for ${email}`);
-
+    // Auto-send OTP after signup
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await Otp.create({ email, code: otpCode, requestedAt: Date.now(), expiresAt: Date.now() + 5 * 60 * 1000 });
+    await sendEmail(
+      email,
+      'Your One-Time Password (Money Minds)',
+      `Hello ${firstName},\n\nYour One-Time Password (OTP) to continue with Money Minds is:\n\n🔐 OTP: ${otpCode}\n\nThis code is valid for 5 minutes. Please do not share it with anyone.\n\nIf you did not request this OTP, please ignore this message.\n\nThank you,  \nThe Money Minds Team`
+    );
+    return successResponse(res, 201, `Account created for ${email}. OTP has been sent to your email and will expire in 5 minutes.`);
   } catch (err) {
     return errorResponse(res, 500, 'An error occurred while processing your request', err.message);
   }

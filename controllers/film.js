@@ -1,5 +1,4 @@
 const Video = require('../models/video');
-const WatchProgress = require('../models/watch-progress');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
@@ -9,7 +8,7 @@ const getRandomFilms = async (req, res) => {
     const pagination = parsePaginationParams(req.query);
     const userId = new mongoose.Types.ObjectId(req.userId);
     
-    // Use aggregation for efficient random sampling and pagination with watch progress
+    // Use aggregation for efficient random sampling and pagination
     const pipeline = [
       { $match: { type: 'film' } },
       { $sample: { size: pagination.perPage * 10 } }, // Sample more for better randomness
