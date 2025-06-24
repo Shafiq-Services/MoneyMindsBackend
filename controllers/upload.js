@@ -3,8 +3,6 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const { uploadFile } = require('../utils/backblazeB2');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
-const { ProgressTracker } = require('../utils/progressTracker');
-const socketManager = require('../utils/socketManager');
 const Video = require('../models/video');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 
@@ -49,27 +47,12 @@ const uploadImage = async (req, res) => {
     const fileExtension = path.extname(req.file.originalname);
     const fileName = `images/${imageId}${fileExtension}`;
 
-    // Create progress tracker for image
-    const progressTracker = new ProgressTracker(imageId, 'image', socketManager);
-    
     try {
-      // Real upload progress - track actual upload to B2
-      progressTracker.updateUploadProgress(0);
-      
-      const uploadResult = await uploadFile(fileName, req.file.buffer, (progressData) => {
-        // Real upload progress callback from B2 upload
-        if (progressData && progressData.percent) {
-          progressTracker.updateUploadProgress(progressData.percent);
-        }
-      });
-      
-      progressTracker.updateUploadProgress(100);
+      const uploadResult = await uploadFile(fileName, req.file.buffer);
       
       const result = {
         imageUrl: uploadResult.fileUrl,
       };
-      
-      progressTracker.complete(result);
 
       return res.status(200).json({
         status: true,
@@ -79,7 +62,6 @@ const uploadImage = async (req, res) => {
       });
 
     } catch (error) {
-      progressTracker.fail(error);
       throw error;
     }
 
@@ -90,11 +72,9 @@ const uploadImage = async (req, res) => {
 
 const uploadVideo = async (req, res) => {
   const videoId = uuidv4();
-  const progressTracker = new ProgressTracker(videoId, 'video', socketManager);
 
   try {
     if (!req.file) {
-      progressTracker.fail(new Error('No video file provided'));
       return errorResponse(res, 400, 'No video file provided');
     }
 
@@ -104,14 +84,7 @@ const uploadVideo = async (req, res) => {
     
     // Upload original video file
     console.log('📤 Starting original video upload...');
-    progressTracker.updateUploadProgress(0);
-    const originalUploadResult = await uploadFile(originalFileName, req.file.buffer, (progressData) => {
-      if (progressData && progressData.percent) {
-        console.log(`📤 Upload Progress: ${progressData.percent}%`);
-        progressTracker.updateUploadProgress(progressData.percent);
-      }
-    });
-    progressTracker.updateUploadProgress(100);
+    const originalUploadResult = await uploadFile(originalFileName, req.file.buffer);
     console.log('✅ Original video upload complete');
 
     // Create video document with original URL
@@ -124,7 +97,7 @@ const uploadVideo = async (req, res) => {
     // Start transcoding
     try {
       console.log('🔄 Starting video transcoding...');
-      const transcodeResult = await transcodeToHLS(req.file.buffer, videoId, progressTracker);
+      const transcodeResult = await transcodeToHLS(req.file.buffer, videoId);
       console.log('✅ Video transcoding complete');
       
       // Update video document with transcoded URL and resolutions
@@ -132,16 +105,8 @@ const uploadVideo = async (req, res) => {
         videoUrl: transcodeResult.videoUrl,
         resolutions: transcodeResult.resolutions
       });
-      
-      // Complete the progress tracking
-      progressTracker.complete({
-        videoUrl: transcodeResult.videoUrl,
-        originalVideoUrl: originalUploadResult.fileUrl,
-        videoId: video._id,
-        watchedProgress: socketManager.videoProgress[userId][videoId] || 0
-      });
 
-      // Return complete result after everything is done (no resolutions)
+      // Return complete result after everything is done
       return res.status(200).json({
         status: true,
         message: 'Video uploaded and processed successfully',
@@ -149,20 +114,17 @@ const uploadVideo = async (req, res) => {
         video: {
           id: video._id,
           videoUrl: transcodeResult.videoUrl,
-          originalVideoUrl: originalUploadResult.fileUrl,
-          watchedProgress: socketManager.videoProgress[userId][videoId] || 0
+          originalVideoUrl: originalUploadResult.fileUrl
         },
       });
       
     } catch (transcodeError) {
       console.error('❌ Transcoding failed:', transcodeError.message);
-      progressTracker.fail(transcodeError);
       return errorResponse(res, 500, 'Failed to process video', transcodeError.message);
     }
     
   } catch (err) {
     console.error('❌ Upload failed:', err.message);
-    progressTracker.fail(err);
     return errorResponse(res, 500, 'Failed to upload video', err.message);
   }
 };

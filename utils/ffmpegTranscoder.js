@@ -54,12 +54,8 @@ const generateHLSResolutions = (sourceHeight) => {
   return resolutions.filter(res => res.height <= sourceHeight);
 };
 
-const transcodeToHLS = async (videoBuffer, videoId, progressTracker = null) => {
+const transcodeToHLS = async (videoBuffer, videoId) => {
   try {
-    if (progressTracker) {
-      progressTracker.startTranscoding();
-    }
-
     const { width, height, duration } = await getVideoResolution(videoBuffer);
     const resolutions = generateHLSResolutions(height);
     
@@ -104,19 +100,6 @@ const transcodeToHLS = async (videoBuffer, videoId, progressTracker = null) => {
             '-f hls'
           ])
           .output(path.join(outputPath, playlistName));
-
-        // Add progress tracking for this resolution
-        if (progressTracker && duration) {
-          command.on('progress', (progress) => {
-            // Calculate progress for this resolution
-            const resolutionProgress = progress.percent || 0;
-            const baseProgress = (completedResolutions / resolutions.length) * 100;
-            const currentResolutionProgress = (resolutionProgress / resolutions.length);
-            const totalTranscodingProgress = baseProgress + currentResolutionProgress;
-            
-            progressTracker.updateTranscodingProgress(totalTranscodingProgress);
-          });
-        }
 
         command
           .on('end', () => {
