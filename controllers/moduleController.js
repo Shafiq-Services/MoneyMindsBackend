@@ -148,7 +148,7 @@ const listModulesByCourse = async (req, res) => {
         name: lesson.name,
         videoUrl: lesson.videoUrl,
         createdAt: lesson.createdAt,
-        watchedProgress: socketManager.videoProgress[userId][lesson._id] || 0
+        watchedProgress: socketManager.videoProgress[userId]?.[lesson._id] || 0
       })),
       createdAt: module.createdAt
     }));
@@ -173,6 +173,11 @@ const getModuleById = async (req, res) => {
       return errorResponse(res, 404, 'Module not found');
     }
 
+    // Check if courseId exists and is populated
+    if (!module.courseId) {
+      return errorResponse(res, 404, 'Course not found for this module');
+    }
+
     // Check if user is a member of the campus
     const { campus, isMember } = await getCampusWithMembershipCheck(module.courseId.campusId, userId);
     if (!campus) {
@@ -194,7 +199,7 @@ const getModuleById = async (req, res) => {
       name: lesson.name,
       videoUrl: lesson.videoUrl,
       createdAt: lesson.createdAt,
-      watchedProgress: socketManager.videoProgress[userId][lesson._id] || 0
+      watchedProgress: socketManager.videoProgress[userId]?.[lesson._id] || 0
     }));
 
     // Structure response in organized format
