@@ -186,6 +186,31 @@ const listCampuses = async (req, res) => {
   }
 };
 
+const getUserCampuses = async (req, res) => {
+  try {
+    const userId = req.userId;
+    
+    // Find campuses where the user is a member
+    const userCampuses = await Campus.find({
+      'members.userId': userId
+    }).select('slug title imageUrl members createdAt');
+    
+    // Structure response in organized format
+    const structuredUserCampuses = userCampuses.map(campus => ({
+      _id: campus._id,
+      slug: campus.slug,
+      title: campus.title,
+      imageUrl: campus.imageUrl,
+      memberCount: campus.members.length,
+      createdAt: campus.createdAt
+    }));
+
+    return successResponse(res, 200, 'User campuses retrieved successfully', structuredUserCampuses, 'userCampuses');
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve user campuses', error.message);
+  }
+};
+
 const getCampusById = async (req, res) => {
   try {
     const { campusId } = req.query;
@@ -288,5 +313,6 @@ module.exports = {
   joinCampus,
   leaveCampus,
   listCampuses,
+  getUserCampuses,
   getCampusById
 }; 

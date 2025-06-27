@@ -7,12 +7,14 @@ const {
   joinCampus,
   leaveCampus,
   listCampuses,
+  getUserCampuses,
   getCampusById
 } = require('../controllers/campusController');
 const authMiddleware = require('../middlewares/auth');
 router.use(authMiddleware);
 
 router.get('/list', listCampuses);
+router.get('/user', getUserCampuses);
 router.get('/', getCampusById);
 router.post('/join', joinCampus);
 router.post('/leave', leaveCampus);
