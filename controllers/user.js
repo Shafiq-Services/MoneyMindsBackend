@@ -50,20 +50,16 @@ const sendOtp = async (req, res) => {
     await sendEmail(
         email,
         'Your One-Time Password (Money Minds)',
-        `
-      Hello ${user.firstName},
-      
-      Your One-Time Password (OTP) to continue with Money Minds is:
-      
-      🔐 OTP: ${otpCode}
-      
-      This code is valid for 5 minutes. Please do not share it with anyone.
-      
-      If you did not request this OTP, please ignore this message.
-      
-      Thank you,  
-      The Money Minds Team
-        `.trim()
+        `Hello ${user.firstName},
+
+Your One-Time Password (OTP) to continue with Money Minds is: ${otpCode}
+
+This code is valid for 5 minutes. Please do not share it with anyone.
+
+If you did not request this OTP, please ignore this message.
+
+Thank you,
+The Money Minds Team`
       );
     return successResponse(res, 200, `OTP has been sent to ${email}. It will expire in 5 minutes`);
   } catch (err) {

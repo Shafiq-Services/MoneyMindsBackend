@@ -109,7 +109,7 @@ exports.handleStripeWebhook = async (req, res) => {
 
       if (user) {
         // You can use your sendEmail utility here
-        // await sendEmail(user.email, 'Payment Failed', 'Your recent payment failed...');
+        await sendEmail(user.email, 'Payment Failed', 'Your recent payment failed...');
         console.log(`Payment failed for user: ${user.email}. Notifying user.`);
       }
       break;
