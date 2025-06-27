@@ -159,17 +159,26 @@ const leaveCampus = async (req, res) => {
 
 const listCampuses = async (req, res) => {
   try {
+    const userId = req.userId;
     const campuses = await Campus.find({}).select('slug title imageUrl members createdAt');
     
     // Structure response in organized format
-    const structuredCampuses = campuses.map(campus => ({
-      _id: campus._id,
-      slug: campus.slug,
-      title: campus.title,
-      imageUrl: campus.imageUrl,
-      memberCount: campus.members.length,
-      createdAt: campus.createdAt
-    }));
+    const structuredCampuses = campuses.map(campus => {
+      // Check if current user is a member of this campus
+      const isJoined = campus.members.some(member => 
+        member.userId.toString() === userId.toString()
+      );
+      
+      return {
+        _id: campus._id,
+        slug: campus.slug,
+        title: campus.title,
+        imageUrl: campus.imageUrl,
+        memberCount: campus.members.length,
+        joined: isJoined,
+        createdAt: campus.createdAt
+      };
+    });
 
     return successResponse(res, 200, 'Campuses retrieved successfully', structuredCampuses, 'campuses');
   } catch (error) {
