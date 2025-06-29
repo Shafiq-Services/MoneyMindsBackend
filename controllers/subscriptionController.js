@@ -21,7 +21,7 @@ exports.createSubscription = async (req, res) => {
     const { paymentMethod, plan } = req.body;
     
     if (!paymentMethod) return errorResponse(res, 400, 'Payment method is required');
-    if (!planType || !['monthly', 'yearly'].includes(planType)) {
+    if (!plan || !['monthly', 'yearly'].includes(plan)) {
       return errorResponse(res, 400, 'Plan type must be either "monthly" or "yearly"');
     }
 
@@ -29,7 +29,7 @@ exports.createSubscription = async (req, res) => {
     if (!user) return errorResponse(res, 404, 'User not found');
 
     // Select price ID based on plan type
-    const priceId = planType === 'monthly' ? MONTHLY_PRICE_ID : YEARLY_PRICE_ID;
+    const priceId = plan === 'monthly' ? MONTHLY_PRICE_ID : YEARLY_PRICE_ID;
     if (!priceId) {
       return errorResponse(res, 500, 'Price configuration not found');
     }
@@ -60,7 +60,7 @@ exports.createSubscription = async (req, res) => {
     const newSubscription = new Subscription({
       userId: user._id,
       provider: 'stripe',
-      plan: planType,
+      plan: plan,
       status: 'incomplete', // Will be updated by webhooks
       currentPeriodEnd: new Date(subscription.current_period_end * 1000),
       metadata: { 
@@ -75,7 +75,7 @@ exports.createSubscription = async (req, res) => {
       await sendEmail(
         user.email,
         'Welcome to Money Minds!',
-        `Hello ${user.firstName},\n\nThank you for subscribing to Money Minds ${planType} plan!\n\nYour subscription is being processed. You'll receive a confirmation email once your payment is successful.\n\nIf you have any questions, please don't hesitate to contact us.\n\nBest regards,\nThe Money Minds Team`
+        `Hello ${user.firstName},\n\nThank you for subscribing to Money Minds ${plan} plan!\n\nYour subscription is being processed. You'll receive a confirmation email once your payment is successful.\n\nIf you have any questions, please don't hesitate to contact us.\n\nBest regards,\nThe Money Minds Team`
       );
     } catch (emailError) {
       console.error('Failed to send welcome email:', emailError);
@@ -85,7 +85,7 @@ exports.createSubscription = async (req, res) => {
     return successResponse(res, 201, 'Subscription created successfully', {
       subscriptionId: subscription.id,
       clientSecret: subscription.latest_invoice.payment_intent.client_secret,
-      planType: planType
+      plan: plan
     }, 'subscription');
   } catch (error) {
     console.error('Stripe Error:', error);
