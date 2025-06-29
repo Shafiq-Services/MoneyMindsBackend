@@ -18,7 +18,7 @@ exports.createSubscription = async (req, res) => {
   try {
     // Authenticated user only
     const userId = req.userId;
-    const { paymentMethod, planType } = req.body;
+    const { paymentMethod, plan } = req.body;
     
     if (!paymentMethod) return errorResponse(res, 400, 'Payment method is required');
     if (!planType || !['monthly', 'yearly'].includes(planType)) {
