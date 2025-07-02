@@ -79,6 +79,7 @@ const verifyOtp = async (req, res) => {
     await Otp.deleteMany({ email });
     const user = await User.findOne({ email });
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+<<<<<<< HEAD
     return res
       .status(200)
       .json({
@@ -87,6 +88,9 @@ const verifyOtp = async (req, res) => {
         token,
         user
       });
+=======
+    return res.status(200).json({ status: true, message: 'OTP verification successful', token, firstName: user.firstName, lastName: user.lastName, username: user.username, email: user.email, phone: user.phone, avatar: user.avatar });
+>>>>>>> cb3ddba (APIs updated)
   } catch (err) {
     return errorResponse(res, 500, 'An error occurred during OTP verification', err.message);
   }
@@ -138,6 +142,7 @@ const modifyAvatar = async (req, res) => {
     const user = await User.findById(req.userId);
     user.avatar = avatarUrl;
     await user.save();
+<<<<<<< HEAD
     return res
       .status(200)
       .json({
@@ -145,6 +150,9 @@ const modifyAvatar = async (req, res) => {
         message: "Avatar has been successfully updated",
         user,
       });
+=======
+    return successResponse(res, 200, 'Avatar has been successfully updated', {firstName: user.firstName, lastName: user.lastName, username: user.username, email: user.email, phone: user.phone, avatar: user.avatar});
+>>>>>>> cb3ddba (APIs updated)
   } catch (err) {
     return errorResponse(res, 500, 'Failed to update avatar', err.message);
   }
