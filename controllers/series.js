@@ -89,10 +89,15 @@ const getRandomSeries = async (req, res) => {
       ...seriesItem,
       seasons: seriesItem.seasons.map(season => ({
         ...season,
-        episodes: season.episodes.map(episode => ({
-          ...episode,
-          watchProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][episode._id] ? socketManager.videoProgress[req.userId][episode._id] : 0
-        }))
+        episodes: season.episodes.map(episode => {
+          const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][episode._id] ? socketManager.videoProgress[req.userId][episode._id] : null;
+          return {
+            ...episode,
+            watchProgress: progress ? progress.percentage : 0,
+            watchSeconds: progress ? progress.seconds : 0,
+            totalDuration: progress ? progress.totalDuration : 0
+          };
+        })
       }))
     }));
     

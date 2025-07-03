@@ -185,7 +185,18 @@ const getCourseById = async (req, res) => {
         name: lesson.name,
         videoUrl: lesson.videoUrl,
         createdAt: lesson.createdAt,
-        watchedProgress: socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : 0
+        watchedProgress: (() => {
+          const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
+          return progress ? progress.percentage : 0;
+        })(),
+        watchSeconds: (() => {
+          const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
+          return progress ? progress.seconds : 0;
+        })(),
+        totalDuration: (() => {
+          const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
+          return progress ? progress.totalDuration : 0;
+        })()
       })),
       createdAt: module.createdAt
     }));

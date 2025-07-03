@@ -140,16 +140,21 @@ const listModulesByCourse = async (req, res) => {
       courseId: course._id,
       campusId: course.campusId,
       name: module.name,
-      lessons: module.lessons.map(lesson => ({
-        _id: lesson._id,
-        moduleId: lesson.moduleId,
-        courseId: course._id,
-        campusId: course.campusId,
-        name: lesson.name,
-        videoUrl: lesson.videoUrl,
-        createdAt: lesson.createdAt,
-        watchedProgress: socketManager.videoProgress[userId]?.[lesson._id] || 0
-      })),
+              lessons: module.lessons.map(lesson => {
+          const progress = socketManager.videoProgress[userId]?.[lesson._id] || null;
+          return {
+            _id: lesson._id,
+            moduleId: lesson.moduleId,
+            courseId: course._id,
+            campusId: course.campusId,
+            name: lesson.name,
+            videoUrl: lesson.videoUrl,
+            createdAt: lesson.createdAt,
+            watchedProgress: progress ? progress.percentage : 0,
+            watchSeconds: progress ? progress.seconds : 0,
+            totalDuration: progress ? progress.totalDuration : 0
+          };
+        }),
       createdAt: module.createdAt
     }));
 

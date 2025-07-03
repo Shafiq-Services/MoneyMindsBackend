@@ -91,7 +91,18 @@ const postVideo = async (req, res) => {
       posterUrl: videoObj.posterUrl,
       createdAt: videoObj.createdAt,
       resolutions: videoObj.resolutions,
-      watchedProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : 0,
+      watchedProgress: (() => {
+        const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : null;
+        return progress ? progress.percentage : 0;
+      })(),
+      watchSeconds: (() => {
+        const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : null;
+        return progress ? progress.seconds : 0;
+      })(),
+      totalDuration: (() => {
+        const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : null;
+        return progress ? progress.totalDuration : 0;
+      })(),
       ...Object.fromEntries(Object.entries(videoObj).filter(([k]) => !['_id','title','description','type','videoUrl','posterUrl','createdAt','resolutions'].includes(k)))
     };
 
@@ -272,13 +283,15 @@ const getContinueWatching = async (req, res) => {
     // Check in-memory progress for films
     if (socketManager.videoProgress[userId]) {
       for (const [videoId, progress] of Object.entries(socketManager.videoProgress[userId])) {
-        if (progress > 0) {
+        if (progress.percentage > 0) {
           // Get video details
           const video = await Video.findById(videoId);
           if (video) {
             continueWatching.push({
               ...video.toObject(),
-              watchProgress: progress,
+              watchProgress: progress.percentage,
+              watchSeconds: progress.seconds,
+              totalDuration: progress.totalDuration,
               contentType: video.type === 'film' ? 'film' : 'episode'
             });
           }

@@ -14,7 +14,7 @@ class SocketManager {
     this.userContext = {};
     // In-memory unread state: { [userId]: { [channelId]: lastReadAt } }
     this.lastReadAt = {};
-    // Add in-memory video progress tracking: { [userId]: { [videoId]: progress } }
+    // Add in-memory video progress tracking: { [userId]: { [videoId]: { seconds: number, percentage: number } } }
     this.videoProgress = {};
   }
 
@@ -84,6 +84,7 @@ class SocketManager {
           const video = await Video.findById(data.videoId);
           
           let progressPercentage = 0;
+          let totalDuration = 0;
           
           if (video && video.videoUrl) {
             // Calculate percentage from video URL metadata
@@ -96,7 +97,6 @@ class SocketManager {
                 const lines = response.data.split('\n');
                 
                 // Look for duration in HLS playlist
-                let totalDuration = 0;
                 for (let i = 0; i < lines.length; i++) {
                   const line = lines[i].trim();
                   if (line.startsWith('#EXTINF:')) {
@@ -113,27 +113,90 @@ class SocketManager {
                 }
               }
               
-              // If HLS parsing failed or not HLS, use fallback
+              // If HLS parsing failed or not HLS, try to get duration from video metadata
               if (progressPercentage === 0) {
-                // Fallback: estimate percentage assuming average video length (30 minutes)
-                progressPercentage = Math.min(Math.round((data.progress / 1800) * 100), 100);
+                try {
+                  // Try to get video duration using ffprobe or other methods
+                  const ffmpeg = require('fluent-ffmpeg');
+                  const os = require('os');
+                  
+                  // Use custom binaries only on Linux (e.g., Azure server)
+                  if (os.platform() !== 'win32') {
+                    ffmpeg.setFfmpegPath(path.join(__dirname, '../bin', 'ffmpeg'));
+                    ffmpeg.setFfprobePath(path.join(__dirname, '../bin', 'ffprobe'));
+                  }
+                  
+                  // Get video duration using ffprobe
+                  await new Promise((resolve, reject) => {
+                    ffmpeg.ffprobe(video.videoUrl, (err, metadata) => {
+                      if (!err && metadata && metadata.format && metadata.format.duration) {
+                        totalDuration = metadata.format.duration;
+                        progressPercentage = Math.round((data.progress / totalDuration) * 100);
+                      } else {
+                        // If ffprobe fails, use a more reasonable fallback (10 minutes)
+                        totalDuration = 600;
+                        progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+                      }
+                      resolve();
+                    });
+                  });
+                } catch (ffprobeError) {
+                  console.log('Could not get video duration via ffprobe, using fallback');
+                  // Fallback: use a more reasonable estimate (10 minutes)
+                  totalDuration = 600;
+                  progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+                }
               }
               
             } catch (error) {
-              console.log('Could not fetch video metadata, using fallback calculation');
-              // Fallback: estimate percentage assuming average video length (30 minutes)
-              progressPercentage = Math.min(Math.round((data.progress / 1800) * 100), 100);
+              console.log('Could not fetch video metadata, trying ffprobe');
+              // Try to get video duration using ffprobe
+              try {
+                const ffmpeg = require('fluent-ffmpeg');
+                const os = require('os');
+                
+                // Use custom binaries only on Linux (e.g., Azure server)
+                if (os.platform() !== 'win32') {
+                  ffmpeg.setFfmpegPath(path.join(__dirname, '../bin', 'ffmpeg'));
+                  ffmpeg.setFfprobePath(path.join(__dirname, '../bin', 'ffprobe'));
+                }
+                
+                // Get video duration using ffprobe
+                await new Promise((resolve, reject) => {
+                  ffmpeg.ffprobe(video.videoUrl, (err, metadata) => {
+                    if (!err && metadata && metadata.format && metadata.format.duration) {
+                      totalDuration = metadata.format.duration;
+                      progressPercentage = Math.round((data.progress / totalDuration) * 100);
+                    } else {
+                      // If ffprobe fails, use a more reasonable fallback (10 minutes)
+                      totalDuration = 600;
+                      progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+                    }
+                    resolve();
+                  });
+                });
+              } catch (ffprobeError) {
+                console.log('Could not get video duration via ffprobe, using fallback');
+                // Fallback: use a more reasonable estimate (10 minutes)
+                totalDuration = 600;
+                progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+              }
             }
           } else {
-            // Fallback: estimate percentage assuming average video length (30 minutes)
-            progressPercentage = Math.min(Math.round((data.progress / 1800) * 100), 100);
+            // No video URL available, use a reasonable fallback (10 minutes)
+            totalDuration = 600;
+            progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
           }
           
           // Ensure percentage is between 0 and 100
           progressPercentage = Math.max(0, Math.min(100, progressPercentage));
           
-          // Store the calculated percentage
-          this.videoProgress[userId][data.videoId] = progressPercentage;
+          // Store both seconds and percentage
+          this.videoProgress[userId][data.videoId] = {
+            seconds: data.progress,
+            percentage: progressPercentage,
+            totalDuration: totalDuration
+          };
         }
       });
     });

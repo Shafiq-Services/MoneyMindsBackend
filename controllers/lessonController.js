@@ -26,6 +26,7 @@ const createLesson = async (req, res) => {
     });
 
     // Structure response in organized format
+    const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : null;
     const responseData = {
       _id: lesson._id,
       moduleId: lesson.moduleId,
@@ -33,7 +34,9 @@ const createLesson = async (req, res) => {
       campusId: module.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
-      watchedProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : 0,
+      watchedProgress: progress ? progress.percentage : 0,
+      watchSeconds: progress ? progress.seconds : 0,
+      totalDuration: progress ? progress.totalDuration : 0,
       createdAt: lesson.createdAt
     };
 
@@ -69,6 +72,7 @@ const editLesson = async (req, res) => {
     await lesson.save();
 
     // Structure response in organized format
+    const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : null;
     const responseData = {
       _id: lesson._id,
       moduleId: lesson.moduleId._id,
@@ -76,7 +80,9 @@ const editLesson = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
-      watchedProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : 0,
+      watchedProgress: progress ? progress.percentage : 0,
+      watchSeconds: progress ? progress.seconds : 0,
+      totalDuration: progress ? progress.totalDuration : 0,
       createdAt: lesson.createdAt
     };
 
@@ -134,16 +140,21 @@ const listLessonsByModule = async (req, res) => {
     const lessons = await Lesson.find({ moduleId }).populate('moduleId', 'name');
     
     // Structure response in organized format
-    const structuredLessons = lessons.map(lesson => ({
-      _id: lesson._id,
-      moduleId: lesson.moduleId._id,
-      courseId: module.courseId._id,
-      campusId: module.courseId.campusId,
-      name: lesson.name,
-      videoUrl: lesson.videoUrl,
-      watchedProgress: socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : 0,
-      createdAt: lesson.createdAt
-    }));
+    const structuredLessons = lessons.map(lesson => {
+      const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
+      return {
+        _id: lesson._id,
+        moduleId: lesson.moduleId._id,
+        courseId: module.courseId._id,
+        campusId: module.courseId.campusId,
+        name: lesson.name,
+        videoUrl: lesson.videoUrl,
+        watchedProgress: progress ? progress.percentage : 0,
+        watchSeconds: progress ? progress.seconds : 0,
+        totalDuration: progress ? progress.totalDuration : 0,
+        createdAt: lesson.createdAt
+      };
+    });
 
     return successResponse(res, 200, 'Lessons retrieved successfully', structuredLessons, 'lessons');
   } catch (error) {
@@ -182,6 +193,7 @@ const getLessonById = async (req, res) => {
     }
 
     // Structure response in organized format
+    const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
     const responseData = {
       _id: lesson._id,
       moduleId: lesson.moduleId._id,
@@ -189,7 +201,9 @@ const getLessonById = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
-      watchedProgress: socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : 0,
+      watchedProgress: progress ? progress.percentage : 0,
+      watchSeconds: progress ? progress.seconds : 0,
+      totalDuration: progress ? progress.totalDuration : 0,
       createdAt: lesson.createdAt
     };
 

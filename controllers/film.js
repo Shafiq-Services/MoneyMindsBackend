@@ -20,10 +20,15 @@ const getRandomFilms = async (req, res) => {
     const films = await Video.aggregate(pipeline);
     
     // Add watch progress to each film
-    const filmsWithProgress = films.map(film => ({
-      ...film,
-      watchProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][film._id] ? socketManager.videoProgress[req.userId][film._id] : 0
-    }));
+    const filmsWithProgress = films.map(film => {
+      const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][film._id] ? socketManager.videoProgress[req.userId][film._id] : null;
+      return {
+        ...film,
+        watchProgress: progress ? progress.percentage : 0,
+        watchSeconds: progress ? progress.seconds : 0,
+        totalDuration: progress ? progress.totalDuration : 0
+      };
+    });
     
     const totalCount = await Video.countDocuments({ type: 'film' });
     const totalPages = Math.ceil(totalCount / pagination.perPage);
