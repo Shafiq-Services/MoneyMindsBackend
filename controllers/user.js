@@ -47,21 +47,21 @@ const sendOtp = async (req, res) => {
 
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     await Otp.create({ email, code: otpCode, requestedAt: Date.now(), expiresAt: Date.now() + 5 * 60 * 1000 });
-    await sendEmail(
-        email,
-        'Your One-Time Password (Money Minds)',
-        `Hello ${user.firstName},
+//     await sendEmail(
+//         email,
+//         'Your One-Time Password (Money Minds)',
+//         `Hello ${user.firstName},
 
-Your One-Time Password (OTP) to continue with Money Minds is: ${otpCode}
+// Your One-Time Password (OTP) to continue with Money Minds is: ${otpCode}
 
-This code is valid for 5 minutes. Please do not share it with anyone.
+// This code is valid for 5 minutes. Please do not share it with anyone.
 
-If you did not request this OTP, please ignore this message.
+// If you did not request this OTP, please ignore this message.
 
-Thank you,
-The Money Minds Team`
-      );
-    return successResponse(res, 200, `OTP has been sent to ${email}. It will expire in 5 minutes`);
+// Thank you,
+// The Money Minds Team`
+//       );
+    return successResponse(res, 200, `OTP ${otpCode} has been sent to ${email}. It will expire in 5 minutes`);
   } catch (err) {
     return errorResponse(res, 500, 'Failed to generate and send OTP', err.message);
   }

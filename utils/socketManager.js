@@ -4,6 +4,7 @@ const Channel = require('../models/channel');
 const Campus = require('../models/campus');
 const Message = require('../models/chat-message');
 const User = require('../models/user');
+const Video = require('../models/video');
 
 class SocketManager {
   constructor() {
@@ -75,10 +76,64 @@ class SocketManager {
         }
       });
       // Video progress event
-      socket.on('video-progress', (data) => {
+      socket.on('video-progress', async (data) => {
         if (data && data.videoId && typeof data.progress === 'number') {
           if (!this.videoProgress[userId]) this.videoProgress[userId] = {};
-          this.videoProgress[userId][data.videoId] = data.progress;
+          
+          // Get video details to calculate percentage from seconds
+          const video = await Video.findById(data.videoId);
+          
+          let progressPercentage = 0;
+          
+          if (video && video.videoUrl) {
+            // Calculate percentage from video URL metadata
+            try {
+              const axios = require('axios');
+              
+              // Try to get duration from HLS playlist
+              if (video.videoUrl.endsWith('.m3u8')) {
+                const response = await axios.get(video.videoUrl, { timeout: 5000 });
+                const lines = response.data.split('\n');
+                
+                // Look for duration in HLS playlist
+                let totalDuration = 0;
+                for (let i = 0; i < lines.length; i++) {
+                  const line = lines[i].trim();
+                  if (line.startsWith('#EXTINF:')) {
+                    // Extract duration from #EXTINF:duration, format
+                    const durationMatch = line.match(/#EXTINF:([\d.]+)/);
+                    if (durationMatch) {
+                      totalDuration += parseFloat(durationMatch[1]);
+                    }
+                  }
+                }
+                
+                if (totalDuration > 0) {
+                  progressPercentage = Math.round((data.progress / totalDuration) * 100);
+                }
+              }
+              
+              // If HLS parsing failed or not HLS, use fallback
+              if (progressPercentage === 0) {
+                // Fallback: estimate percentage assuming average video length (30 minutes)
+                progressPercentage = Math.min(Math.round((data.progress / 1800) * 100), 100);
+              }
+              
+            } catch (error) {
+              console.log('Could not fetch video metadata, using fallback calculation');
+              // Fallback: estimate percentage assuming average video length (30 minutes)
+              progressPercentage = Math.min(Math.round((data.progress / 1800) * 100), 100);
+            }
+          } else {
+            // Fallback: estimate percentage assuming average video length (30 minutes)
+            progressPercentage = Math.min(Math.round((data.progress / 1800) * 100), 100);
+          }
+          
+          // Ensure percentage is between 0 and 100
+          progressPercentage = Math.max(0, Math.min(100, progressPercentage));
+          
+          // Store the calculated percentage
+          this.videoProgress[userId][data.videoId] = progressPercentage;
         }
       });
     });
