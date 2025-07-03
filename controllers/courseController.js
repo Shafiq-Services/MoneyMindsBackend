@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Course = require('../models/course');
 const Module = require('../models/module');
 const Lesson = require('../models/lesson');
@@ -115,16 +116,52 @@ const listCoursesByCampus = async (req, res) => {
       return errorResponse(res, 403, 'You must be a member of this campus to view courses');
     }
 
-    const courses = await Course.find({ campusId }).populate('campusId', 'title slug');
-    
-    // Structure response in organized format
-    const structuredCourses = courses.map(course => ({
-      _id: course._id,
-      campusId: course.campusId._id,
-      title: course.title,
-      imageUrl: course.imageUrl,
-      createdAt: course.createdAt
-    }));
+    // Get courses with lessons for progress calculation
+    const coursesWithProgress = await Course.aggregate([
+      { $match: { campusId: new mongoose.Types.ObjectId(campusId) } },
+      {
+        $lookup: {
+          from: 'lessons',
+          localField: '_id',
+          foreignField: 'courseId',
+          as: 'lessons'
+        }
+      }
+    ]);
+
+    // Process each course to calculate progress
+    const structuredCourses = coursesWithProgress.map(course => {
+      let videosWithProgress = 0;
+      let totalVideos = 0;
+
+      // Count videos with progress from socket manager
+      course.lessons.forEach(lesson => {
+        if (lesson.videoUrl && lesson.videoUrl.trim() !== '') {
+          totalVideos++;
+          const progress = socketManager.videoProgress[userId] && 
+                          socketManager.videoProgress[userId][lesson._id.toString()];
+          if (progress && progress.percentage > 0) {
+            videosWithProgress++;
+          }
+        }
+      });
+
+      // Calculate course progress percentage
+      const courseProgress = totalVideos > 0 ? Math.round((videosWithProgress / totalVideos) * 100) : 0;
+
+      return {
+        _id: course._id,
+        campusId: course.campusId,
+        campusTitle: campus.title,
+        campusSlug: campus.slug,
+        title: course.title,
+        imageUrl: course.imageUrl,
+        totalVideos: totalVideos,
+        videosWithProgress: videosWithProgress,
+        courseProgress: courseProgress,
+        createdAt: course.createdAt
+      };
+    });
 
     return successResponse(res, 200, 'Courses retrieved successfully', structuredCourses, 'courses');
   } catch (error) {
@@ -201,12 +238,36 @@ const getCourseById = async (req, res) => {
       createdAt: module.createdAt
     }));
 
+    // Calculate course progress
+    let videosWithProgress = 0;
+    let totalVideos = 0;
+
+    // Count videos with progress from socket manager
+    structuredModules.forEach(module => {
+      module.lessons.forEach(lesson => {
+        if (lesson.videoUrl && lesson.videoUrl.trim() !== '') {
+          totalVideos++;
+          if (lesson.watchedProgress > 0) {
+            videosWithProgress++;
+          }
+        }
+      });
+    });
+
+    // Calculate course progress percentage
+    const courseProgress = totalVideos > 0 ? Math.round((videosWithProgress / totalVideos) * 100) : 0;
+
     // Structure response in organized format
     const responseData = {
       _id: course._id,
       campusId: course.campusId._id,
+      campusTitle: course.campusId.title,
+      campusSlug: course.campusId.slug,
       title: course.title,
       imageUrl: course.imageUrl,
+      totalVideos: totalVideos,
+      videosWithProgress: videosWithProgress,
+      courseProgress: courseProgress,
       modules: structuredModules,
       createdAt: course.createdAt
     };

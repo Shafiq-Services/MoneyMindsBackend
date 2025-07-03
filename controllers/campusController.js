@@ -290,11 +290,33 @@ const getCampusById = async (req, res) => {
         };
       });
 
+      // Calculate course progress
+      let videosWithProgress = 0;
+      let totalVideos = 0;
+
+      // Count videos with progress from socket manager
+      courseModules.forEach(module => {
+        module.lessons.forEach(lesson => {
+          if (lesson.videoUrl && lesson.videoUrl.trim() !== '') {
+            totalVideos++;
+            if (lesson.watchedProgress > 0) {
+              videosWithProgress++;
+            }
+          }
+        });
+      });
+
+      // Calculate course progress percentage
+      const courseProgress = totalVideos > 0 ? Math.round((videosWithProgress / totalVideos) * 100) : 0;
+
       return {
         _id: course._id,
         campusId: course.campusId,
         title: course.title,
         imageUrl: course.imageUrl,
+        totalVideos: totalVideos,
+        videosWithProgress: videosWithProgress,
+        courseProgress: courseProgress,
         modules: courseModules,
         createdAt: course.createdAt
       };
