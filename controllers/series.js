@@ -3,6 +3,7 @@ const Video = require('../models/video');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
+const socketManager = require('../utils/socketManager');
 
 // POST /api/series
 // Body: { title, description, posterUrl }
@@ -82,13 +83,26 @@ const getRandomSeries = async (req, res) => {
     ];
     
     const series = await Series.aggregate(pipeline);
+    
+    // Add watch progress to each episode
+    const seriesWithProgress = series.map(seriesItem => ({
+      ...seriesItem,
+      seasons: seriesItem.seasons.map(season => ({
+        ...season,
+        episodes: season.episodes.map(episode => ({
+          ...episode,
+          watchProgress: socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][episode._id] ? socketManager.videoProgress[req.userId][episode._id] : 0
+        }))
+      }))
+    }));
+    
     const totalCount = await Series.countDocuments();
     const totalPages = Math.ceil(totalCount / pagination.perPage);
 
     return res.status(200).json({
       status: true,
       message: 'Random series retrieved successfully.',
-      series,
+      series: seriesWithProgress,
       pagination: {
         page: pagination.page,
         perPage: pagination.perPage,

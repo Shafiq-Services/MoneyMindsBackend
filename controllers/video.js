@@ -262,7 +262,53 @@ const getRandomSuggestion = async (req, res) => {
   }
 };
 
+const getContinueWatching = async (req, res) => {
+  try {
+    const userId = req.userId;
+    
+    // Get all videos with watch progress > 0
+    const continueWatching = [];
+    
+    // Check in-memory progress for films
+    if (socketManager.videoProgress[userId]) {
+      for (const [videoId, progress] of Object.entries(socketManager.videoProgress[userId])) {
+        if (progress > 0) {
+          // Get video details
+          const video = await Video.findById(videoId);
+          if (video) {
+            continueWatching.push({
+              ...video.toObject(),
+              watchProgress: progress,
+              contentType: video.type === 'film' ? 'film' : 'episode'
+            });
+          }
+        }
+      }
+    }
+    
+    // Sort by watch progress (highest first) and then by last watched time
+    continueWatching.sort((a, b) => {
+      if (b.watchProgress !== a.watchProgress) {
+        return b.watchProgress - a.watchProgress;
+      }
+      return new Date(b.lastWatchedAt || 0) - new Date(a.lastWatchedAt || 0);
+    });
+    
+    // Limit to 20 items
+    const limitedResults = continueWatching.slice(0, 20);
+
+    return res.status(200).json({
+      status: true,
+      message: 'Continue watching content retrieved successfully.',
+      continueWatching: limitedResults
+    });
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to get continue watching content.', err.message);
+  }
+};
+
 module.exports = { 
   postVideo, 
-  getRandomSuggestion 
+  getRandomSuggestion,
+  getContinueWatching
 }; 
