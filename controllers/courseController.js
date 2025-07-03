@@ -4,6 +4,7 @@ const Lesson = require('../models/lesson');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
+const Campus = require('../models/campus');
 
 const createCourse = async (req, res) => {
   try {
@@ -14,7 +15,6 @@ const createCourse = async (req, res) => {
     }
 
     // Verify campus exists (admin operation - no membership check required)
-    const Campus = require('../models/campus');
     const campus = await Campus.findById(campusId);
     if (!campus) {
       return errorResponse(res, 404, 'Campus not found');
@@ -217,10 +217,195 @@ const getCourseById = async (req, res) => {
   }
 };
 
+const getContinueLearning = async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    // Get all campuses where user is a member
+    const userCampuses = await Campus.find({ 'members.userId': userId });
+    const campusIds = userCampuses.map(campus => campus._id);
+
+    if (campusIds.length === 0) {
+      return successResponse(res, 200, 'No campuses found for user', {
+        continueLearning: [],
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalCount: 0,
+          totalPages: 0
+        }
+      }, 'continueLearning');
+    }
+
+    // Get all courses from user's campuses with modules and lessons
+    const coursesWithProgress = await Course.aggregate([
+      { $match: { campusId: { $in: campusIds } } },
+      {
+        $lookup: {
+          from: 'modules',
+          localField: '_id',
+          foreignField: 'courseId',
+          as: 'modules'
+        }
+      },
+      {
+        $lookup: {
+          from: 'lessons',
+          localField: '_id',
+          foreignField: 'courseId',
+          as: 'lessons'
+        }
+      },
+      {
+        $addFields: {
+          totalVideos: { $size: '$lessons' },
+          videosWithProgress: {
+            $size: {
+              $filter: {
+                input: '$lessons',
+                as: 'lesson',
+                cond: {
+                  $and: [
+                    { $ne: ['$$lesson.videoUrl', null] },
+                    { $ne: ['$$lesson.videoUrl', ''] }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          courseProgress: {
+            $cond: {
+              if: { $gt: ['$totalVideos', 0] },
+              then: {
+                $multiply: [
+                  {
+                    $divide: [
+                      {
+                        $size: {
+                          $filter: {
+                            input: '$lessons',
+                            as: 'lesson',
+                            cond: {
+                              $and: [
+                                { $ne: ['$$lesson.videoUrl', null] },
+                                { $ne: ['$$lesson.videoUrl', ''] },
+                                {
+                                  $gt: [
+                                    {
+                                      $ifNull: [
+                                        { $arrayElemAt: [{ $objectToArray: { $ifNull: ['$videoProgress', {}] } }, 0] },
+                                        0
+                                      ]
+                                    },
+                                    0
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      '$totalVideos'
+                    ]
+                  },
+                  100
+                ]
+              },
+              else: 0
+            }
+          }
+        }
+      },
+      {
+        $match: {
+          $or: [
+            { totalVideos: { $gt: 0 } },
+            { courseProgress: { $gt: 0 } }
+          ]
+        }
+      },
+      {
+        $sort: { courseProgress: -1, createdAt: -1 }
+      }
+    ]);
+
+    // Process each course to calculate actual progress from socket manager
+    const processedCourses = coursesWithProgress.map(course => {
+      let videosWithProgress = 0;
+      let totalVideos = 0;
+      let latestProgressTime = 0;
+
+      // Count videos with progress from socket manager
+      course.lessons.forEach(lesson => {
+        if (lesson.videoUrl && lesson.videoUrl.trim() !== '') {
+          totalVideos++;
+          const progress = socketManager.videoProgress[userId] && 
+                          socketManager.videoProgress[userId][lesson._id.toString()];
+          if (progress && progress.percentage > 0) {
+            videosWithProgress++;
+            // Track the most recent progress time using actual timestamp
+            latestProgressTime = Math.max(latestProgressTime, progress.lastUpdated || 0);
+          }
+        }
+      });
+
+      // Calculate course progress percentage: (videos with progress / total videos) * 100
+      const courseProgress = totalVideos > 0 ? Math.round((videosWithProgress / totalVideos) * 100) : 0;
+
+      // Get campus info
+      const campus = userCampuses.find(c => c._id.toString() === course.campusId.toString());
+
+      return {
+        _id: course._id,
+        campusId: course.campusId,
+        campusTitle: campus ? campus.title : '',
+        campusSlug: campus ? campus.slug : '',
+        campusImageUrl: campus ? campus.imageUrl : '',
+        title: course.title,
+        imageUrl: course.imageUrl,
+        totalVideos: totalVideos,
+        videosWithProgress: videosWithProgress,
+        courseProgress: courseProgress,
+        createdAt: course.createdAt
+      };
+    });
+
+    // Filter courses that have actual progress and sort by recent progress
+    const coursesWithActualProgress = processedCourses
+      .filter(course => course.courseProgress > 0)
+      .sort((a, b) => {
+        // First sort by latest progress time (most recent first)
+        if (b.latestProgressTime !== a.latestProgressTime) {
+          return b.latestProgressTime - a.latestProgressTime;
+        }
+        // Then by course progress percentage (highest first)
+        if (b.courseProgress !== a.courseProgress) {
+          return b.courseProgress - a.courseProgress;
+        }
+        // Finally by creation date (newest first)
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
+
+
+
+    return successResponse(res, 200, 'Continue learning courses retrieved successfully', {
+      continueLearning: coursesWithActualProgress
+    }, 'continueLearning');
+
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to get continue learning courses', error.message);
+  }
+};
+
 module.exports = {
   createCourse,
   editCourse,
   deleteCourse,
   listCoursesByCampus,
-  getCourseById
+  getCourseById,
+  getContinueLearning
 }; 

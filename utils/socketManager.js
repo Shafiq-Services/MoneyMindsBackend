@@ -14,7 +14,7 @@ class SocketManager {
     this.userContext = {};
     // In-memory unread state: { [userId]: { [channelId]: lastReadAt } }
     this.lastReadAt = {};
-    // Add in-memory video progress tracking: { [userId]: { [videoId]: { seconds: number, percentage: number } } }
+    // Add in-memory video progress tracking: { [userId]: { [videoId]: { seconds: number, percentage: number, totalDuration: number, lastUpdated: number } } }
     this.videoProgress = {};
   }
 
@@ -191,11 +191,12 @@ class SocketManager {
           // Ensure percentage is between 0 and 100
           progressPercentage = Math.max(0, Math.min(100, progressPercentage));
           
-          // Store both seconds and percentage
+          // Store both seconds and percentage with timestamp
           this.videoProgress[userId][data.videoId] = {
             seconds: data.progress,
             percentage: progressPercentage,
-            totalDuration: totalDuration
+            totalDuration: totalDuration,
+            lastUpdated: Date.now()
           };
         }
       });

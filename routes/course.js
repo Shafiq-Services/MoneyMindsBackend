@@ -5,7 +5,8 @@ const {
   editCourse,
   deleteCourse,
   listCoursesByCampus,
-  getCourseById
+  getCourseById,
+  getContinueLearning
 } = require('../controllers/courseController');
 const authMiddleware = require('../middlewares/auth');
 router.use(authMiddleware);
@@ -13,6 +14,7 @@ router.use(authMiddleware);
 // All course routes require authentication
 router.get('/', getCourseById);
 router.get('/list', listCoursesByCampus);
+router.get('/continue-learning', getContinueLearning);
 //Admin Routes
 router.post('/', createCourse);
 router.put('/', editCourse);
