@@ -1,8 +1,15 @@
 const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { uploadFile } = require('./backblazeB2');
 const { getB2S3Url } = require('./b2Url');
+
+// Use custom binaries only on Linux (e.g., Azure server)
+if (os.platform() !== 'win32') {
+  ffmpeg.setFfmpegPath(path.join(__dirname, '../bin', 'ffmpeg'));
+  ffmpeg.setFfprobePath(path.join(__dirname, '../bin', 'ffprobe'));
+}
 
 const getVideoResolution = (videoBuffer) => {
   return new Promise((resolve, reject) => {
