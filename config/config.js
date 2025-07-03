@@ -56,6 +56,11 @@ module.exports = {
     NODE_ENV: process.env.NODE_ENV || 'development',
     stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
     stripeSecretKey: process.env.STRIPE_SECRET_KEY,
-    stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET
+    stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    B2_KEY_ID: process.env.B2_KEY_ID,
+    B2_APPLICATION_KEY: process.env.B2_APPLICATION_KEY,
+    B2_BUCKET_ID: process.env.B2_BUCKET_ID,
+    B2_BUCKET_NAME: process.env.B2_BUCKET_NAME,
+    B2_REGION: process.env.B2_REGION || 'us-east-005'
   };
   

@@ -39,8 +39,27 @@ const upload = multer({
 
 const uploadImage = async (req, res) => {
   try {
+    console.log('🖼️ Starting image upload process...');
+    console.log('📁 File info:', {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size,
+      userId: req.userId
+    });
+
     if (!req.file) {
       return errorResponse(res, 400, 'No image file provided');
+    }
+
+    // Validate file size (10MB limit for images)
+    if (req.file.size > 10 * 1024 * 1024) {
+      return errorResponse(res, 400, 'File size exceeds 10MB limit');
+    }
+
+    // Validate file type
+    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedImageTypes.includes(req.file.mimetype)) {
+      return errorResponse(res, 400, 'Invalid image file type');
     }
 
     const imageId = uuidv4();
@@ -50,16 +69,17 @@ const uploadImage = async (req, res) => {
     try {
       const uploadResult = await uploadFile(fileName, req.file.buffer);
       
-      const result = {
+      // Structure response according to node-api-structure
+      const responseData = {
+        _id: imageId,
         imageUrl: uploadResult.fileUrl,
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+        createdAt: new Date()
       };
 
-      return res.status(200).json({
-        status: true,
-        message: 'Image uploaded successfully',
-        imageId: imageId,
-        ...result,
-      });
+      return successResponse(res, 201, 'Image uploaded successfully', responseData, 'image');
 
     } catch (error) {
       throw error;
@@ -71,12 +91,31 @@ const uploadImage = async (req, res) => {
 };
 
 const uploadVideo = async (req, res) => {
-  const videoId = uuidv4();
-
   try {
+    console.log('🎬 Starting video upload process...');
+    console.log('📁 File info:', {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size,
+      userId: req.userId
+    });
+
     if (!req.file) {
       return errorResponse(res, 400, 'No video file provided');
     }
+
+    // Validate file size
+    if (req.file.size > 500 * 1024 * 1024) {
+      return errorResponse(res, 400, 'File size exceeds 500MB limit');
+    }
+
+    // Validate file type
+    const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
+    if (!allowedVideoTypes.includes(req.file.mimetype)) {
+      return errorResponse(res, 400, 'Invalid video file type');
+    }
+
+    const videoId = uuidv4();
 
     // Store original video file
     const fileExtension = path.extname(req.file.originalname);
@@ -106,17 +145,23 @@ const uploadVideo = async (req, res) => {
         resolutions: transcodeResult.resolutions
       });
 
-      // Return complete result after everything is done
-      return res.status(200).json({
-        status: true,
-        message: 'Video uploaded and processed successfully',
-        videoId: video._id,
-        video: {
-          id: video._id,
-          videoUrl: transcodeResult.videoUrl,
-          originalVideoUrl: originalUploadResult.fileUrl
-        },
-      });
+      // Get updated video document
+      const updatedVideo = await Video.findById(video._id);
+
+      // Structure response according to node-api-structure
+      const responseData = {
+        _id: updatedVideo._id,
+        title: updatedVideo.title,
+        description: updatedVideo.description,
+        type: updatedVideo.type,
+        videoUrl: updatedVideo.videoUrl,
+        originalVideoUrl: updatedVideo.originalVideoUrl,
+        posterUrl: updatedVideo.posterUrl,
+        resolutions: updatedVideo.resolutions,
+        createdAt: updatedVideo.createdAt
+      };
+
+      return successResponse(res, 201, 'Video uploaded and processed successfully', responseData, 'video');
       
     } catch (transcodeError) {
       console.error('❌ Transcoding failed:', transcodeError.message);
