@@ -1,10 +1,13 @@
-const { Server } = require('socket.io');
-const jwt = require('jsonwebtoken');
-const Channel = require('../models/channel');
-const Campus = require('../models/campus');
-const Message = require('../models/chat-message');
-const User = require('../models/user');
-const Video = require('../models/video');
+const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
+const Channel = require("../models/channel");
+const Campus = require("../models/campus");
+const Message = require("../models/chat-message");
+const User = require("../models/user");
+const Video = require("../models/video");
+
+//Events
+const { handleUserLike } = require("../events/likeEvents");
 
 class SocketManager {
   constructor() {
@@ -22,84 +25,118 @@ class SocketManager {
     this.io = new Server(server, {
       cors: {
         origin: "*",
-        methods: ["GET", "POST"]
-      }
+        methods: ["GET", "POST"],
+      },
     });
 
-    this.io.on('connection', async (socket) => {
+    this.io.on("connection", async (socket) => {
+      console.log("Socket connection attempt from:", socket.handshake.address);
+      
       // JWT auth via query param or handshake
       let token = socket.handshake.auth?.token || socket.handshake.query?.token;
       let userId;
       try {
-        if (!token) throw new Error('No token');
+        if (!token) {
+          console.log("No token provided in socket connection");
+          throw new Error("No token");
+        }
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.id;
         socket.userId = userId;
+        console.log("Socket authenticated for user:", userId);
       } catch (err) {
+        console.log("Socket authentication failed:", err.message);
         socket.disconnect();
         return;
       }
       // Track socketId for user
-      this.userContext[userId] = this.userContext[userId] || { inList: false, activeChannelId: null };
+      this.userContext[userId] = this.userContext[userId] || {
+        inList: false,
+        activeChannelId: null,
+      };
       this.userContext[userId].socketId = socket.id;
       // Join personal room
       socket.join(`user:${userId}`);
       // Join all channel rooms for user's campuses
-      const campuses = await Campus.find({ 'members.userId': userId });
-      const campusIds = campuses.map(c => c._id.toString());
+      const campuses = await Campus.find({ "members.userId": userId });
+      const campusIds = campuses.map((c) => c._id.toString());
       const channels = await Channel.find({ campusId: { $in: campusIds } });
-      channels.forEach(ch => {
+      channels.forEach((ch) => {
         socket.join(`channel:${ch._id}`);
       });
       // Typing events
-      socket.on('user-typing', (data) => {
+      socket.on("user-typing", (data) => {
         if (data && data.channelId) {
-          socket.to(`channel:${data.channelId}`).emit('user-typing', { userId, channelId: data.channelId });
+          socket
+            .to(`channel:${data.channelId}`)
+            .emit("user-typing", { userId, channelId: data.channelId });
         }
       });
-      socket.on('typing-stopped', (data) => {
+      socket.on("typing-stopped", (data) => {
         if (data && data.channelId) {
-          socket.to(`channel:${data.channelId}`).emit('typing-stopped', { userId, channelId: data.channelId });
+          socket
+            .to(`channel:${data.channelId}`)
+            .emit("typing-stopped", { userId, channelId: data.channelId });
         }
       });
       // Exit channel list event
-      socket.on('exit-channel-list', () => {
+      socket.on("exit-channel-list", () => {
         if (this.userContext[userId]) {
           this.userContext[userId].inList = false;
           this.userContext[userId].activeChannelId = null;
         }
       });
-      socket.on('disconnect', () => {
+
+      // Test event for debugging
+      socket.on("test-event", (data) => {
+        console.log("Test event received:", { data, userId });
+        socket.emit("test-response", { message: "Test successful", userId });
+      });
+
+      // Like Feed event
+      socket.on("like-feed", async (data) => {
+        console.log("Like feed event received:", { data, userId });
+        // Add userId to the data object
+        const likeData = {
+          ...data,
+          userId: userId
+        };
+        await handleUserLike(likeData);
+      });
+
+      socket.on("disconnect", () => {
         // Optionally clean up userContext
         if (this.userContext[userId]) {
           delete this.userContext[userId].socketId;
         }
       });
       // Video progress event
-      socket.on('video-progress', async (data) => {
-        if (data && data.videoId && typeof data.progress === 'number') {
+      socket.on("video-progress", async (data) => {
+        if (data && data.videoId && typeof data.progress === "number") {
           if (!this.videoProgress[userId]) this.videoProgress[userId] = {};
-          
+
           // Get video details to calculate percentage from seconds
           const video = await Video.findById(data.videoId);
-          
+
           let progressPercentage = 0;
           let totalDuration = 0;
-          
+
           if (video && video.videoUrl) {
             // Calculate percentage from video URL metadata
             try {
-              const axios = require('axios');
-              
+              const axios = require("axios");
+
               // Try to get duration from HLS playlist
-              if (video.videoUrl.endsWith('.m3u8')) {
-                const response = await axios.get(video.videoUrl, { timeout: 5000 });
-                const lines = response.data.split('\n');
-                
+              if (video.videoUrl.endsWith(".m3u8")) {
+                const response = await axios.get(video.videoUrl, {
+                  timeout: 5000,
+                });
+                const lines = response.data.split("\n");
+
                 // Look for duration in HLS playlist
                 for (let i = 0; i < lines.length; i++) {
                   const line = lines[i].trim();
-                  if (line.startsWith('#EXTINF:')) {
+                  if (line.startsWith("#EXTINF:")) {
                     // Extract duration from #EXTINF:duration, format
                     const durationMatch = line.match(/#EXTINF:([\d.]+)/);
                     if (durationMatch) {
@@ -107,96 +144,138 @@ class SocketManager {
                     }
                   }
                 }
-                
+
                 if (totalDuration > 0) {
-                  progressPercentage = Math.round((data.progress / totalDuration) * 100);
+                  progressPercentage = Math.round(
+                    (data.progress / totalDuration) * 100
+                  );
                 }
               }
-              
+
               // If HLS parsing failed or not HLS, try to get duration from video metadata
               if (progressPercentage === 0) {
                 try {
                   // Try to get video duration using ffprobe or other methods
-                  const ffmpeg = require('fluent-ffmpeg');
-                  const os = require('os');
-                  
+                  const ffmpeg = require("fluent-ffmpeg");
+                  const os = require("os");
+
                   // Use custom binaries only on Linux (e.g., Azure server)
-                  if (os.platform() !== 'win32') {
-                    ffmpeg.setFfmpegPath(path.join(__dirname, '../bin', 'ffmpeg'));
-                    ffmpeg.setFfprobePath(path.join(__dirname, '../bin', 'ffprobe'));
+                  if (os.platform() !== "win32") {
+                    ffmpeg.setFfmpegPath(
+                      path.join(__dirname, "../bin", "ffmpeg")
+                    );
+                    ffmpeg.setFfprobePath(
+                      path.join(__dirname, "../bin", "ffprobe")
+                    );
                   }
-                  
+
                   // Get video duration using ffprobe
                   await new Promise((resolve, reject) => {
                     ffmpeg.ffprobe(video.videoUrl, (err, metadata) => {
-                      if (!err && metadata && metadata.format && metadata.format.duration) {
+                      if (
+                        !err &&
+                        metadata &&
+                        metadata.format &&
+                        metadata.format.duration
+                      ) {
                         totalDuration = metadata.format.duration;
-                        progressPercentage = Math.round((data.progress / totalDuration) * 100);
+                        progressPercentage = Math.round(
+                          (data.progress / totalDuration) * 100
+                        );
                       } else {
                         // If ffprobe fails, use a more reasonable fallback (10 minutes)
                         totalDuration = 600;
-                        progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+                        progressPercentage = Math.min(
+                          Math.round((data.progress / totalDuration) * 100),
+                          100
+                        );
                       }
                       resolve();
                     });
                   });
                 } catch (ffprobeError) {
-                  console.log('Could not get video duration via ffprobe, using fallback');
+                  console.log(
+                    "Could not get video duration via ffprobe, using fallback"
+                  );
                   // Fallback: use a more reasonable estimate (10 minutes)
                   totalDuration = 600;
-                  progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+                  progressPercentage = Math.min(
+                    Math.round((data.progress / totalDuration) * 100),
+                    100
+                  );
                 }
               }
-              
             } catch (error) {
-              console.log('Could not fetch video metadata, trying ffprobe');
+              console.log("Could not fetch video metadata, trying ffprobe");
               // Try to get video duration using ffprobe
               try {
-                const ffmpeg = require('fluent-ffmpeg');
-                const os = require('os');
-                
+                const ffmpeg = require("fluent-ffmpeg");
+                const os = require("os");
+
                 // Use custom binaries only on Linux (e.g., Azure server)
-                if (os.platform() !== 'win32') {
-                  ffmpeg.setFfmpegPath(path.join(__dirname, '../bin', 'ffmpeg'));
-                  ffmpeg.setFfprobePath(path.join(__dirname, '../bin', 'ffprobe'));
+                if (os.platform() !== "win32") {
+                  ffmpeg.setFfmpegPath(
+                    path.join(__dirname, "../bin", "ffmpeg")
+                  );
+                  ffmpeg.setFfprobePath(
+                    path.join(__dirname, "../bin", "ffprobe")
+                  );
                 }
-                
+
                 // Get video duration using ffprobe
                 await new Promise((resolve, reject) => {
                   ffmpeg.ffprobe(video.videoUrl, (err, metadata) => {
-                    if (!err && metadata && metadata.format && metadata.format.duration) {
+                    if (
+                      !err &&
+                      metadata &&
+                      metadata.format &&
+                      metadata.format.duration
+                    ) {
                       totalDuration = metadata.format.duration;
-                      progressPercentage = Math.round((data.progress / totalDuration) * 100);
+                      progressPercentage = Math.round(
+                        (data.progress / totalDuration) * 100
+                      );
                     } else {
                       // If ffprobe fails, use a more reasonable fallback (10 minutes)
                       totalDuration = 600;
-                      progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+                      progressPercentage = Math.min(
+                        Math.round((data.progress / totalDuration) * 100),
+                        100
+                      );
                     }
                     resolve();
                   });
                 });
               } catch (ffprobeError) {
-                console.log('Could not get video duration via ffprobe, using fallback');
+                console.log(
+                  "Could not get video duration via ffprobe, using fallback"
+                );
                 // Fallback: use a more reasonable estimate (10 minutes)
                 totalDuration = 600;
-                progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+                progressPercentage = Math.min(
+                  Math.round((data.progress / totalDuration) * 100),
+                  100
+                );
               }
             }
           } else {
             // No video URL available, use a reasonable fallback (10 minutes)
             totalDuration = 600;
-            progressPercentage = Math.min(Math.round((data.progress / totalDuration) * 100), 100);
+            progressPercentage = Math.min(
+              Math.round((data.progress / totalDuration) * 100),
+              100
+            );
           }
-          
+
           // Ensure percentage is between 0 and 100
           progressPercentage = Math.max(0, Math.min(100, progressPercentage));
-          
+
           // Store both seconds and percentage with timestamp
           this.videoProgress[userId][data.videoId] = {
             seconds: data.progress,
             percentage: progressPercentage,
             totalDuration: totalDuration,
-            lastUpdated: Date.now()
+            lastUpdated: Date.now(),
           };
         }
       });
@@ -206,14 +285,20 @@ class SocketManager {
 
   // Called from controller: user called GET /channel/list
   markInList(userId) {
-    this.userContext[userId] = this.userContext[userId] || { inList: false, activeChannelId: null };
+    this.userContext[userId] = this.userContext[userId] || {
+      inList: false,
+      activeChannelId: null,
+    };
     this.userContext[userId].inList = true;
     this.userContext[userId].activeChannelId = null;
   }
 
   // Called from controller: user called GET /channel/messages?pageNo=1
   markInChannel(userId, channelId) {
-    this.userContext[userId] = this.userContext[userId] || { inList: false, activeChannelId: null };
+    this.userContext[userId] = this.userContext[userId] || {
+      inList: false,
+      activeChannelId: null,
+    };
     this.userContext[userId].inList = false;
     this.userContext[userId].activeChannelId = channelId;
     // Reset unread count (update lastReadAt)
@@ -231,27 +316,35 @@ class SocketManager {
   // Called from controller: send-message
   async handleSendMessage(message, channelId, senderId) {
     // Find all users in this channel (campus members)
-    const channel = await Channel.findById(channelId).populate('campusId');
+    const channel = await Channel.findById(channelId).populate("campusId");
     const campus = channel.campusId;
-    const memberIds = campus.members.map(m => m.userId.toString());
+    const memberIds = campus.members.map((m) => m.userId.toString());
     for (const userId of memberIds) {
       // Skip sender for unread
       if (userId === senderId.toString()) continue;
       // If user is in this channel, emit new-message
       const ctx = this.userContext[userId];
       if (ctx && ctx.activeChannelId === channelId) {
-        this.io.to(`user:${userId}`).emit('new-message', message);
+        this.io.to(`user:${userId}`).emit("new-message", message);
         // Reset unread count
         if (!this.lastReadAt[userId]) this.lastReadAt[userId] = {};
         this.lastReadAt[userId][channelId] = new Date();
       } else if (ctx && ctx.inList) {
         // If user is in channel list, emit unread-count-updated
         const unreadCount = await this.getUnreadCount(userId, channelId);
-        this.io.to(`user:${userId}`).emit('unread-count-updated', { channelId, unreadCount });
-      } else if (ctx && ctx.activeChannelId && ctx.activeChannelId !== channelId) {
+        this.io
+          .to(`user:${userId}`)
+          .emit("unread-count-updated", { channelId, unreadCount });
+      } else if (
+        ctx &&
+        ctx.activeChannelId &&
+        ctx.activeChannelId !== channelId
+      ) {
         // User is in another channel, include unread counts in message object
         const unreadCounts = await this.getAllUnreadCounts(userId);
-        this.io.to(`user:${userId}`).emit('new-message', { ...message, unreadCounts });
+        this.io
+          .to(`user:${userId}`)
+          .emit("new-message", { ...message, unreadCounts });
       } else {
         // User is not in list or any channel: increment unread count only
         // (No emit needed)
@@ -266,13 +359,16 @@ class SocketManager {
       // All messages are unread
       return await Message.countDocuments({ channelId });
     }
-    return await Message.countDocuments({ channelId, createdAt: { $gt: lastRead } });
+    return await Message.countDocuments({
+      channelId,
+      createdAt: { $gt: lastRead },
+    });
   }
 
   // Get all unread counts for a user (for all their channels)
   async getAllUnreadCounts(userId) {
-    const campuses = await Campus.find({ 'members.userId': userId });
-    const campusIds = campuses.map(c => c._id.toString());
+    const campuses = await Campus.find({ "members.userId": userId });
+    const campusIds = campuses.map((c) => c._id.toString());
     const channels = await Channel.find({ campusId: { $in: campusIds } });
     const result = {};
     for (const ch of channels) {
@@ -285,4 +381,4 @@ class SocketManager {
 // Singleton instance
 const socketManager = new SocketManager();
 
-module.exports = socketManager; 
+module.exports = socketManager;

@@ -16,7 +16,7 @@ module.exports.createMarketplace = async (req, res) => {
   }
 
   try {
-    await Marketplace.create({
+    const marketplace = await Marketplace.create({
       image,
       discount,
       discountCode,
@@ -24,7 +24,12 @@ module.exports.createMarketplace = async (req, res) => {
     });
 
     //Response
-    return successResponse(res, 201, "Marketplace created successfully");
+    return successResponse(
+      res,
+      201,
+      "Marketplace created successfully",
+      marketplace
+    );
   } catch (error) {
     return errorResponse(res, 500, "Failed to create marketplace", error);
   }

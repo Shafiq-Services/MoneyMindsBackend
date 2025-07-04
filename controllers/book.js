@@ -16,7 +16,7 @@ module.exports.createBook = async (req, res) => {
   }
 
   try {
-    await Book.create({
+    const book = await Book.create({
       title,
       author,
       image,
@@ -24,7 +24,7 @@ module.exports.createBook = async (req, res) => {
     });
 
     //Response
-    return successResponse(res, 201, "Book created successfully");
+    return successResponse(res, 201, "Book created successfully", book);
   } catch (error) {
     return errorResponse(res, 500, "Failed to create book", error);
   }
