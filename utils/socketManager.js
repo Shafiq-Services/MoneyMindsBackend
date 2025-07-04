@@ -43,7 +43,6 @@ class SocketManager {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.id;
         socket.userId = userId;
-        console.log("Socket authenticated for user:", userId);
       } catch (err) {
         console.log("Socket authentication failed:", err.message);
         socket.disconnect();
@@ -85,12 +84,6 @@ class SocketManager {
           this.userContext[userId].inList = false;
           this.userContext[userId].activeChannelId = null;
         }
-      });
-
-      // Test event for debugging
-      socket.on("test-event", (data) => {
-        console.log("Test event received:", { data, userId });
-        socket.emit("test-response", { message: "Test successful", userId });
       });
 
       // Like Feed event
