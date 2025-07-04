@@ -69,6 +69,7 @@ app.use("/api/watch-progress", require('./routes/watchProgress'));
 app.use("/api/marketplace", require('./routes/marketplace'));
 app.use("/api/book", require('./routes/book'));
 app.use("/api/feed", require('./routes/feed'));
+app.use("/api/banner", require('./routes/banner'));
 
 // Base route
 app.get("/", (req, res) => {
