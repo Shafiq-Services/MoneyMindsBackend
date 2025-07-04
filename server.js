@@ -66,6 +66,7 @@ app.use("/api/course", require('./routes/course'));
 app.use("/api/module", require('./routes/module'));
 app.use("/api/lesson", require('./routes/lesson'));
 app.use("/api/watch-progress", require('./routes/watchProgress'));
+app.use("/api/marketplace", require('./routes/marketplace'));
 
 // Base route
 app.get("/", (req, res) => {
