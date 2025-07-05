@@ -56,7 +56,6 @@ connectDB();
 app.use("/api/user", require('./routes/user'));
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/video", require('./routes/video'));
-app.use("/api/film", require('./routes/film'));
 app.use("/api/chat", require('./routes/chat'));
 app.use("/api/upload", require('./routes/upload'));
 app.use("/api/upload-progress", require('./routes/uploadProgress'));
