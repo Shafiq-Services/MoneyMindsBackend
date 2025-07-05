@@ -1,12 +1,14 @@
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
 const path = require("path");
+const mongoose = require("mongoose");
 const Channel = require("../models/channel");
 const Campus = require("../models/campus");
 const Message = require("../models/chat-message");
 const User = require("../models/user");
 const Video = require("../models/video");
 const WatchProgress = require("../models/watchProgress");
+const Book = require("../models/book");
 
 //Events
 const { handleUserLike } = require("../events/likeEvents");
@@ -101,6 +103,79 @@ class SocketManager {
           userId: userId
         };
         await handleUserLike(likeData);
+      });
+
+      // Book opening event
+      socket.on("book-opened", async (data) => {
+        console.log('📖 [Socket Manager] Book opened event received:', { data, userId });
+        
+        if (data && data.bookId) {
+          try {
+            // Find the book with timeout handling
+            console.log('🔍 [Socket Manager] Looking for book:', data.bookId);
+            const book = await Book.findById(data.bookId).maxTimeMS(5000); // 5 second timeout
+            if (!book) {
+              console.log('❌ [Socket Manager] Book not found:', data.bookId);
+              socket.emit('book-opened-error', {
+                bookId: data.bookId,
+                error: 'Book not found'
+              });
+              return;
+            }
+            console.log('✅ [Socket Manager] Book found:', book.title);
+
+            // Check if user is already in isOpened array
+            const userObjectId = new mongoose.Types.ObjectId(userId);
+            const isAlreadyOpened = book.isOpened.some(id => id.equals(userObjectId));
+
+            if (!isAlreadyOpened) {
+              // Add user to isOpened array
+              console.log('💾 [Socket Manager] Adding user to isOpened array...');
+              book.isOpened.push(userObjectId);
+              await book.save({ maxTimeMS: 5000 }); // 5 second timeout for save
+              
+              console.log(`✅ [Socket Manager] User ${userId} added to book "${book.title}" isOpened array`);
+              console.log(`📊 [Socket Manager] Book now opened by ${book.isOpened.length} users`);
+              
+              // Emit to user's personal room to confirm
+              socket.emit('book-opened-confirmed', {
+                bookId: data.bookId,
+                bookTitle: book.title,
+                totalOpenedBy: book.isOpened.length
+              });
+              
+              // Optionally emit to other users in the same book context
+              socket.to(`book:${data.bookId}`).emit('book-user-joined', {
+                bookId: data.bookId,
+                userId: userId,
+                totalOpenedBy: book.isOpened.length
+              });
+              
+            } else {
+              console.log(`⚠️ [Socket Manager] User ${userId} already in book "${book.title}" isOpened array`);
+              
+              // Still confirm to user
+              socket.emit('book-opened-confirmed', {
+                bookId: data.bookId,
+                bookTitle: book.title,
+                totalOpenedBy: book.isOpened.length,
+                alreadyOpened: true
+              });
+            }
+
+            // Join book-specific room for real-time updates
+            socket.join(`book:${data.bookId}`);
+            
+          } catch (error) {
+            console.error('❌ [Socket Manager] Error handling book-opened event:', error.message);
+            socket.emit('book-opened-error', {
+              bookId: data.bookId,
+              error: 'Failed to process book opening'
+            });
+          }
+        } else {
+          console.log('❌ [Socket Manager] Invalid book-opened event data:', data);
+        }
       });
 
       socket.on("disconnect", () => {

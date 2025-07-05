@@ -18,6 +18,10 @@ const bookSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    isOpened: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }]
   },
   { timestamps: true }
 );

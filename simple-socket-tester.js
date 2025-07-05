@@ -5,7 +5,7 @@ const io = require('socket.io-client');
 // ==========================================
 
 const SETTINGS = {
-  SERVER_URL: 'https://moneyminds-fddbbaejd3c2afdc.canadacentral-01.azurewebsites.net',
+  SERVER_URL: 'http://localhost:3000',
   USER_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4M2YyN2IyYTRkNzdiNDRiMzc2ZTFhNCIsImlhdCI6MTc1MTcwNzE4MiwiZXhwIjoxNzUyMzExOTgyfQ.eZEKI3HRN-no3CviDXnu7wAWH7pnDI2S1qYoZRNnc1M',
   
   // Video Progress Testing
@@ -17,6 +17,9 @@ const SETTINGS = {
   
   // Feed Testing
   FEED_ID: 'your_feed_id_here',
+  
+  // Book Testing
+  BOOK_ID: '6867aaa49d7700cf7f947e73', // Set a real book ID here
 };
 
 // ==========================================
@@ -40,16 +43,16 @@ function connectToServer() {
     
     // Auto-run example after connection is established
     setTimeout(() => {
-      console.log('🚀 Auto-sending video progress...');
-      sendVideoProgress('6852a41cf586bebfaf0eba33', 120);
+      console.log('🚀 Auto-testing book opening...');
+      sendBookOpened('6867aaa49d7700cf7f947e73'); // Use a real book ID
       
-      // Exit after sending progress (for testing purposes)
+      // Exit after sending book opened event (for testing purposes)
       setTimeout(() => {
-        console.log('✅ Video progress sent successfully!');
+        console.log('✅ Book opened event sent successfully!');
         console.log('🔌 Disconnecting...');
         disconnect();
         process.exit(0);
-      }, 2000);
+      }, 3000); // Wait 3 seconds for server response
     }, 1000);
   });
 
@@ -67,6 +70,11 @@ function connectToServer() {
   socket.on('user-typing', (data) => console.log('⌨️ User typing:', data));
   socket.on('typing-stopped', (data) => console.log('⌨️ Typing stopped:', data));
   socket.on('unread-count-updated', (data) => console.log('📊 Unread count:', data));
+  
+  // Book events
+  socket.on('book-opened-confirmed', (data) => console.log('📖 Book opened confirmed:', data));
+  socket.on('book-user-joined', (data) => console.log('👥 User joined book:', data));
+  socket.on('book-opened-error', (data) => console.log('❌ Book opened error:', data));
 }
 
 // ==========================================
@@ -150,6 +158,18 @@ function sendUnlikeFeed(feedId = SETTINGS.FEED_ID) {
   socket.emit('like-feed', data);
 }
 
+// Book Functions
+function sendBookOpened(bookId = SETTINGS.BOOK_ID) {
+  if (!isConnected) {
+    console.log('❌ Not connected! Call connectToServer() first');
+    return;
+  }
+  
+  const data = { bookId };
+  console.log('📖 Sending book opened event:', data);
+  socket.emit('book-opened', data);
+}
+
 // Channel Functions
 function exitChannelList() {
   if (!isConnected) {
@@ -193,6 +213,9 @@ function showAvailableFunctions() {
   console.log('❤️ Feed:');
   console.log('  - sendLikeFeed(feedId)');
   console.log('  - sendUnlikeFeed(feedId)');
+  console.log('');
+  console.log('📖 Books:');
+  console.log('  - sendBookOpened(bookId)');
   console.log('');
   console.log('🔧 Utility:');
   console.log('  - connectToServer()');
@@ -243,4 +266,9 @@ connectToServer();
 // Example 4: Test like feed
 // setTimeout(() => {
 //   sendLikeFeed('your_feed_id');
-// }, 5000); 
+// }, 5000);
+
+// Example 5: Test book opened (ACTIVE - now runs after connection)
+// setTimeout(() => {
+//   sendBookOpened('6852a41cf586bebfaf0eba33');
+// }, 6000); 
