@@ -6,6 +6,7 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
 const Campus = require('../models/campus');
+const { addVideoResolutions } = require('../utils/videoResolutions');
 
 const createCourse = async (req, res) => {
   try {
@@ -208,33 +209,37 @@ const getCourseById = async (req, res) => {
       }
     ]);
 
-    // Structure the modules with lessons
+    // Structure the modules with lessons and add resolutions
     const structuredModules = modulesWithLessons.map(module => ({
       _id: module._id,
       courseId: module.courseId,
       campusId: course.campusId._id,
       name: module.name,
-      lessons: module.lessons.map(lesson => ({
-        _id: lesson._id,
-        moduleId: lesson.moduleId,
-        courseId: course._id,
-        campusId: course.campusId._id,
-        name: lesson.name,
-        videoUrl: lesson.videoUrl,
-        createdAt: lesson.createdAt,
-        watchedProgress: (() => {
-          const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-          return progress ? progress.percentage : 0;
-        })(),
-        watchSeconds: (() => {
-          const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-          return progress ? progress.seconds : 0;
-        })(),
-        totalDuration: (() => {
-          const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-          return progress ? progress.totalDuration : 0;
-        })()
-      })),
+      lessons: module.lessons.map(lesson => {
+        const lessonWithResolutions = addVideoResolutions({
+          _id: lesson._id,
+          moduleId: lesson.moduleId,
+          courseId: course._id,
+          campusId: course.campusId._id,
+          name: lesson.name,
+          videoUrl: lesson.videoUrl,
+          resolutions: lesson.resolutions || [],
+          createdAt: lesson.createdAt,
+          watchedProgress: (() => {
+            const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
+            return progress ? progress.percentage : 0;
+          })(),
+          watchSeconds: (() => {
+            const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
+            return progress ? progress.seconds : 0;
+          })(),
+          totalDuration: (() => {
+            const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
+            return progress ? progress.totalDuration : 0;
+          })()
+        });
+        return lessonWithResolutions;
+      }),
       createdAt: module.createdAt
     }));
 

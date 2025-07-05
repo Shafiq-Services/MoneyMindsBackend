@@ -4,6 +4,7 @@ const Lesson = require('../models/lesson');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
+const { addVideoResolutions } = require('../utils/videoResolutions');
 
 const createModule = async (req, res) => {
   try {
@@ -134,27 +135,28 @@ const listModulesByCourse = async (req, res) => {
       }
     ]);
 
-    // Structure response in organized format
+    // Structure response in organized format with resolutions
     const structuredModules = modulesWithLessons.map(module => ({
       _id: module._id,
       courseId: course._id,
       campusId: course.campusId,
       name: module.name,
-              lessons: module.lessons.map(lesson => {
-          const progress = socketManager.videoProgress[userId]?.[lesson._id] || null;
-          return {
-            _id: lesson._id,
-            moduleId: lesson.moduleId,
-            courseId: course._id,
-            campusId: course.campusId,
-            name: lesson.name,
-            videoUrl: lesson.videoUrl,
-            createdAt: lesson.createdAt,
-            watchedProgress: progress ? progress.percentage : 0,
-            watchSeconds: progress ? progress.seconds : 0,
-            totalDuration: progress ? progress.totalDuration : 0
-          };
-        }),
+      lessons: module.lessons.map(lesson => {
+        const progress = socketManager.videoProgress[userId]?.[lesson._id] || null;
+        return addVideoResolutions({
+          _id: lesson._id,
+          moduleId: lesson.moduleId,
+          courseId: course._id,
+          campusId: course.campusId,
+          name: lesson.name,
+          videoUrl: lesson.videoUrl,
+          resolutions: lesson.resolutions || [],
+          createdAt: lesson.createdAt,
+          watchedProgress: progress ? progress.percentage : 0,
+          watchSeconds: progress ? progress.seconds : 0,
+          totalDuration: progress ? progress.totalDuration : 0
+        });
+      }),
       createdAt: module.createdAt
     }));
 
@@ -195,17 +197,20 @@ const getModuleById = async (req, res) => {
     // Get all lessons for this module
     const lessons = await Lesson.find({ moduleId: module._id }).sort({ createdAt: 1 });
 
-    // Structure the lessons
-    const structuredLessons = lessons.map(lesson => ({
-      _id: lesson._id,
-      moduleId: lesson.moduleId,
-      courseId: module.courseId._id,
-      campusId: module.courseId.campusId,
-      name: lesson.name,
-      videoUrl: lesson.videoUrl,
-      createdAt: lesson.createdAt,
-      watchedProgress: socketManager.videoProgress[userId]?.[lesson._id] || 0
-    }));
+    // Structure the lessons with resolutions
+    const structuredLessons = lessons.map(lesson => {
+      return addVideoResolutions({
+        _id: lesson._id,
+        moduleId: lesson.moduleId,
+        courseId: module.courseId._id,
+        campusId: module.courseId.campusId,
+        name: lesson.name,
+        videoUrl: lesson.videoUrl,
+        resolutions: lesson.resolutions || [],
+        createdAt: lesson.createdAt,
+        watchedProgress: socketManager.videoProgress[userId]?.[lesson._id] || 0
+      });
+    });
 
     // Structure response in organized format
     const responseData = {

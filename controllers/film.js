@@ -3,6 +3,7 @@ const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
+const { addVideoResolutionsToArray } = require('../utils/videoResolutions');
 
 const getRandomFilms = async (req, res) => {
   try {
@@ -19,7 +20,7 @@ const getRandomFilms = async (req, res) => {
     
     const films = await Video.aggregate(pipeline);
     
-    // Add watch progress to each film
+    // Add watch progress and resolutions to each film
     const filmsWithProgress = films.map(film => {
       const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][film._id] ? socketManager.videoProgress[req.userId][film._id] : null;
       return {
@@ -29,6 +30,9 @@ const getRandomFilms = async (req, res) => {
         totalDuration: progress ? progress.totalDuration : 0
       };
     });
+
+    // Add resolutions to all films efficiently
+    const filmsWithResolutions = addVideoResolutionsToArray(filmsWithProgress);
     
     const totalCount = await Video.countDocuments({ type: 'film' });
     const totalPages = Math.ceil(totalCount / pagination.perPage);
@@ -36,7 +40,7 @@ const getRandomFilms = async (req, res) => {
     return res.status(200).json({
       status: true,
       message: 'Random films retrieved successfully.',
-      films: filmsWithProgress,
+      films: filmsWithResolutions,
       pagination: {
         page: pagination.page,
         perPage: pagination.perPage,

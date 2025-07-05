@@ -4,6 +4,7 @@ const Course = require('../models/course');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
+const { addVideoResolutions, fetchResolutionsFromVideoUrl } = require('../utils/videoResolutions');
 
 const createLesson = async (req, res) => {
   try {
@@ -19,26 +20,33 @@ const createLesson = async (req, res) => {
       return errorResponse(res, 404, 'Module not found');
     }
 
+    // Fetch resolutions from video URL and store them
+    console.log('🎬 Fetching resolutions for lesson:', name);
+    const resolutions = await fetchResolutionsFromVideoUrl(videoUrl);
+    console.log('📊 Resolutions found:', resolutions);
+
     const lesson = await Lesson.create({
       moduleId,
       name,
-      videoUrl
+      videoUrl,
+      resolutions: resolutions
     });
 
-    // Structure response in organized format
+    // Structure response in organized format with resolutions
     const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : null;
-    const responseData = {
+    const responseData = addVideoResolutions({
       _id: lesson._id,
       moduleId: lesson.moduleId,
       courseId: module.courseId._id,
       campusId: module.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      resolutions: lesson.resolutions || [],
       watchedProgress: progress ? progress.percentage : 0,
       watchSeconds: progress ? progress.seconds : 0,
       totalDuration: progress ? progress.totalDuration : 0,
       createdAt: lesson.createdAt
-    };
+    });
 
     return successResponse(res, 201, 'Lesson created successfully', responseData, 'lesson');
   } catch (error) {
@@ -67,24 +75,32 @@ const editLesson = async (req, res) => {
 
     // Admin operation - no membership check required
     if (name) lesson.name = name;
-    if (videoUrl) lesson.videoUrl = videoUrl;
+    if (videoUrl) {
+      lesson.videoUrl = videoUrl;
+      // If video URL is changed, fetch new resolutions
+      console.log('🎬 Video URL changed, fetching new resolutions for lesson:', lesson.name);
+      const resolutions = await fetchResolutionsFromVideoUrl(videoUrl);
+      console.log('📊 New resolutions found:', resolutions);
+      lesson.resolutions = resolutions;
+    }
     
     await lesson.save();
 
-    // Structure response in organized format
+    // Structure response in organized format with resolutions
     const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : null;
-    const responseData = {
+    const responseData = addVideoResolutions({
       _id: lesson._id,
       moduleId: lesson.moduleId._id,
       courseId: lesson.moduleId.courseId._id,
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      resolutions: lesson.resolutions || [],
       watchedProgress: progress ? progress.percentage : 0,
       watchSeconds: progress ? progress.seconds : 0,
       totalDuration: progress ? progress.totalDuration : 0,
       createdAt: lesson.createdAt
-    };
+    });
 
     return successResponse(res, 200, 'Lesson updated successfully', responseData, 'lesson');
   } catch (error) {
@@ -139,21 +155,22 @@ const listLessonsByModule = async (req, res) => {
 
     const lessons = await Lesson.find({ moduleId }).populate('moduleId', 'name');
     
-    // Structure response in organized format
+    // Structure response in organized format with resolutions
     const structuredLessons = lessons.map(lesson => {
       const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-      return {
+      return addVideoResolutions({
         _id: lesson._id,
         moduleId: lesson.moduleId._id,
         courseId: module.courseId._id,
         campusId: module.courseId.campusId,
         name: lesson.name,
         videoUrl: lesson.videoUrl,
+        resolutions: lesson.resolutions || [],
         watchedProgress: progress ? progress.percentage : 0,
         watchSeconds: progress ? progress.seconds : 0,
         totalDuration: progress ? progress.totalDuration : 0,
         createdAt: lesson.createdAt
-      };
+      });
     });
 
     return successResponse(res, 200, 'Lessons retrieved successfully', structuredLessons, 'lessons');
@@ -192,9 +209,9 @@ const getLessonById = async (req, res) => {
       return errorResponse(res, 403, 'You must be a member of this campus to view this lesson');
     }
 
-    // Structure response in organized format
+    // Structure response in organized format with resolutions
     const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-    const responseData = {
+    const responseData = await addVideoResolutions({
       _id: lesson._id,
       moduleId: lesson.moduleId._id,
       courseId: lesson.moduleId.courseId._id,
@@ -205,7 +222,7 @@ const getLessonById = async (req, res) => {
       watchSeconds: progress ? progress.seconds : 0,
       totalDuration: progress ? progress.totalDuration : 0,
       createdAt: lesson.createdAt
-    };
+    });
 
     return successResponse(res, 200, 'Lesson retrieved successfully', responseData, 'lesson');
   } catch (error) {

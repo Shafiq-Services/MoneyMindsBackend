@@ -1,30 +1,10 @@
 const Video = require('../models/video');
 const Series = require('../models/series');
-const axios = require('axios');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
-
-// Helper to fetch resolutions from HLS master playlist
-async function fetchResolutionsFromM3U8(masterUrl) {
-  try {
-    const res = await axios.get(masterUrl, { timeout: 5000 }); // 5 seconds timeout
-    const lines = res.data.split('\n');
-    const resolutions = [];
-    for (const line of lines) {
-      if (line.startsWith('#EXT-X-STREAM-INF:')) {
-        const match = line.match(/RESOLUTION=(\d+)x(\d+)/);
-        if (match) {
-          resolutions.push(parseInt(match[2], 10)); // height
-        }
-      }
-    }
-    return resolutions;
-  } catch (err) {
-    return [];
-  }
-}
+const { fetchResolutionsFromVideoUrl } = require('../utils/videoResolutions');
 
 // POST /api/video
 const postVideo = async (req, res) => {
@@ -63,10 +43,9 @@ const postVideo = async (req, res) => {
     }
 
     // Fetch resolutions from the HLS master playlist
-    let resolutions = [];
-    if (videoUrl && videoUrl.endsWith('.m3u8')) {
-      resolutions = await fetchResolutionsFromM3U8(videoUrl);
-    }
+    console.log('🎬 Fetching resolutions for video:', title || 'Untitled');
+    const resolutions = await fetchResolutionsFromVideoUrl(videoUrl);
+    console.log('📊 Resolutions found:', resolutions);
 
     const video = await Video.create({
       title,
