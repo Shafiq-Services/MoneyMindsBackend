@@ -325,6 +325,47 @@ class SocketManager {
     }
   }
 
+  // Called from controller: edit-message
+  async handleMessageEdit(editedMessage, channelId, editorId) {
+    // Find all users in this channel (campus members)
+    const channel = await Channel.findById(channelId).populate("campusId");
+    const campus = channel.campusId;
+    const memberIds = campus.members.map((m) => m.userId.toString());
+    
+    // Format the message with isMe flag for each user
+    for (const userId of memberIds) {
+      const ctx = this.userContext[userId];
+      if (ctx && ctx.activeChannelId === channelId) {
+        // User is in this channel, emit message-edited
+        const messageForUser = {
+          ...editedMessage,
+          isMe: editedMessage.userId._id.toString() === userId
+        };
+        this.io.to(`user:${userId}`).emit("message-edited", messageForUser);
+      }
+    }
+  }
+
+  // Called from controller: delete-message
+  async handleMessageDelete(messageId, channelId, deleterId) {
+    // Find all users in this channel (campus members)
+    const channel = await Channel.findById(channelId).populate("campusId");
+    const campus = channel.campusId;
+    const memberIds = campus.members.map((m) => m.userId.toString());
+    
+    for (const userId of memberIds) {
+      const ctx = this.userContext[userId];
+      if (ctx && ctx.activeChannelId === channelId) {
+        // User is in this channel, emit message-deleted
+        this.io.to(`user:${userId}`).emit("message-deleted", { 
+          messageId, 
+          channelId,
+          deletedBy: deleterId 
+        });
+      }
+    }
+  }
+
   // Get unread count for a user/channel
   async getUnreadCount(userId, channelId) {
     const lastRead = this.lastReadAt[userId]?.[channelId];

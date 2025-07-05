@@ -92,9 +92,7 @@ const sendMessage = async (req, res) => {
     if (!text && !mediaUrl) {
       return errorResponse(res, 400, 'Message must contain text or mediaUrl');
     }
-    if (mediaUrl && !mediaType) {
-      return errorResponse(res, 400, 'mediaType is required when mediaUrl is provided');
-    }
+
     // Check channel exists
     const channel = await Channel.findById(channelId).populate('campusId');
     if (!channel) {
@@ -205,10 +203,118 @@ const getChannelMessages = async (req, res) => {
   }
 };
 
+// PUT /channel/message/edit
+const editMessage = async (req, res) => {
+  try {
+    const { messageId, text, mediaUrl, mediaType } = req.body;
+    const userId = req.userId;
+
+    if (!messageId) {
+      return errorResponse(res, 400, 'messageId is required');
+    }
+
+    if (!text && !mediaUrl) {
+      return errorResponse(res, 400, 'Message must contain text or mediaUrl');
+    }
+
+    if (mediaUrl && !mediaType) {
+      return errorResponse(res, 400, 'mediaType is required when mediaUrl is provided');
+    }
+
+    // Check message exists
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return errorResponse(res, 404, 'Message not found');
+    }
+
+    // Check if message belongs to current user (isMe condition)
+    if (message.userId.toString() !== userId) {
+      return errorResponse(res, 403, 'You can only edit your own messages');
+    }
+
+    // Check channel exists and user has access
+    const channel = await Channel.findById(message.channelId).populate('campusId');
+    if (!channel) {
+      return errorResponse(res, 404, 'Channel not found');
+    }
+
+    // Check user is member of campus
+    const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
+    if (!isMember) {
+      return errorResponse(res, 403, 'You must be a member of this campus to edit messages');
+    }
+
+    // Update message
+    const updatedMessage = await Message.findByIdAndUpdate(
+      messageId,
+      {
+        text: text || '',
+        mediaUrl,
+        mediaType
+      },
+      { new: true }
+    ).populate('userId', 'email firstName lastName avatar username');
+
+    // Emit real-time update for message edit
+    await socketManager.handleMessageEdit(updatedMessage.toObject(), message.channelId, userId);
+
+    return successResponse(res, 200, 'Message updated successfully', updatedMessage, 'message');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to edit message', err.message);
+  }
+};
+
+// DELETE /channel/message/delete?messageId=...
+const deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.query;
+    const userId = req.userId;
+
+    if (!messageId) {
+      return errorResponse(res, 400, 'messageId is required');
+    }
+
+    // Check message exists
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return errorResponse(res, 404, 'Message not found');
+    }
+
+    // Check if message belongs to current user (isMe condition)
+    if (message.userId.toString() !== userId) {
+      return errorResponse(res, 403, 'You can only delete your own messages');
+    }
+
+    // Check channel exists and user has access
+    const channel = await Channel.findById(message.channelId).populate('campusId');
+    if (!channel) {
+      return errorResponse(res, 404, 'Channel not found');
+    }
+
+    // Check user is member of campus
+    const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
+    if (!isMember) {
+      return errorResponse(res, 403, 'You must be a member of this campus to delete messages');
+    }
+
+    // Delete message
+    await Message.findByIdAndDelete(messageId);
+
+    // Emit real-time update for message deletion
+    await socketManager.handleMessageDelete(messageId, message.channelId, userId);
+
+    return successResponse(res, 200, 'Message deleted successfully', { messageId }, 'deletedMessage');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to delete message', err.message);
+  }
+};
+
 module.exports = {
   addChannel,
   listChannels,
   sendMessage,
+  editMessage,
+  deleteMessage,
   getChannelMembers,
   getChannelMessages
 }; 
