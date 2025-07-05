@@ -3,7 +3,6 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const { uploadFile } = require('../utils/backblazeB2');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
-const Video = require('../models/video');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 
 // Configure multer for memory storage
@@ -92,7 +91,7 @@ const uploadImage = async (req, res) => {
 
 const uploadVideo = async (req, res) => {
   try {
-    console.log('🎬 Starting video upload process...');
+    console.log('🎬 Starting video upload to storage...');
     console.log('📁 File info:', {
       originalname: req.file?.originalname,
       mimetype: req.file?.mimetype,
@@ -126,39 +125,19 @@ const uploadVideo = async (req, res) => {
     const originalUploadResult = await uploadFile(originalFileName, req.file.buffer);
     console.log('✅ Original video upload complete');
 
-    // Create video document with original URL
-    const video = await Video.create({
-      videoUrl: originalUploadResult.fileUrl, // Temporary URL until transcoding is done
-      originalVideoUrl: originalUploadResult.fileUrl,
-      type: 'film', // Default type, can be updated later
-    });
-
     // Start transcoding
     try {
       console.log('🔄 Starting video transcoding...');
       const transcodeResult = await transcodeToHLS(req.file.buffer, videoId);
       console.log('✅ Video transcoding complete');
       
-      // Update video document with transcoded URL and resolutions
-      await Video.findByIdAndUpdate(video._id, {
-        videoUrl: transcodeResult.videoUrl,
-        resolutions: transcodeResult.resolutions
-      });
-
-      // Get updated video document
-      const updatedVideo = await Video.findById(video._id);
-
-      // Structure response according to node-api-structure
+      // Structure response to match expected format
       const responseData = {
-        _id: updatedVideo._id,
-        title: updatedVideo.title,
-        description: updatedVideo.description,
-        type: updatedVideo.type,
-        videoUrl: updatedVideo.videoUrl,
-        originalVideoUrl: updatedVideo.originalVideoUrl,
-        posterUrl: updatedVideo.posterUrl,
-        resolutions: updatedVideo.resolutions,
-        createdAt: updatedVideo.createdAt
+        _id: videoId,
+        videoUrl: transcodeResult.videoUrl,
+        originalVideoUrl: originalUploadResult.fileUrl,
+        resolutions: transcodeResult.resolutions,
+        createdAt: new Date()
       };
 
       return successResponse(res, 201, 'Video uploaded and processed successfully', responseData, 'video');

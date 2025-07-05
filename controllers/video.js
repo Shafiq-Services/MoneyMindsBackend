@@ -114,55 +114,50 @@ const postVideo = async (req, res) => {
 
 const getRandomSuggestion = async (req, res) => {
   try {
-    const userId = new mongoose.Types.ObjectId(req.userId);
-    
+    const userId = req.userId;
     // Randomly choose between film or series
     const contentTypes = ['film', 'series'];
     const randomType = contentTypes[Math.floor(Math.random() * contentTypes.length)];
-    
     let suggestion = null;
-    
+
     if (randomType === 'film') {
-      // Use aggregation for efficient random film selection with watch progress
-      const filmPipeline = [
-        { $match: { type: 'film' } },
-        { $sample: { size: 1 } },
-        {
-          $lookup: {
-            from: 'watchprogresses',
-            let: { videoId: '$_id' },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [
-                      { $eq: ['$videoId', '$$videoId'] },
-                      { $eq: ['$userId', userId] }
-                    ]
-                  }
-                }
-              }
-            ],
-            as: 'watchProgress'
+      // Find a random film document with proper metadata
+      const count = await Video.countDocuments({ 
+        type: 'film',
+        title: { $exists: true, $ne: '', $ne: null },
+        description: { $exists: true, $ne: null },
+        posterUrl: { $exists: true, $ne: null }
+      });
+      if (count > 0) {
+        const random = Math.floor(Math.random() * count);
+        const film = await Video.findOne({ 
+          type: 'film',
+          title: { $exists: true, $ne: '', $ne: null },
+          description: { $exists: true, $ne: null },
+          posterUrl: { $exists: true, $ne: null }
+        }).skip(random);
+        if (film) {
+          // Add watch progress if available
+          let watchProgress = 0;
+          if (socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][film._id]) {
+            watchProgress = socketManager.videoProgress[req.userId][film._id].percentage || 0;
           }
-        },
-        {
-          $addFields: {
-            watchProgress: {
-              $cond: {
-                if: { $gt: [{ $size: '$watchProgress' }, 0] },
-                then: { $arrayElemAt: ['$watchProgress.progress', 0] },
-                else: 0
-              }
-            }
-          }
+          
+          // Explicitly structure the response to ensure all fields are present
+          suggestion = {
+            _id: film._id,
+            title: film.title || '',
+            description: film.description || '',
+            type: film.type,
+            videoUrl: film.videoUrl,
+            posterUrl: film.posterUrl || '',
+            originalVideoUrl: film.originalVideoUrl,
+            resolutions: film.resolutions || [],
+            createdAt: film.createdAt,
+            watchProgress,
+            contentType: 'film'
+          };
         }
-      ];
-      
-      const films = await Video.aggregate(filmPipeline);
-      if (films.length > 0) {
-        suggestion = films[0];
-        suggestion.contentType = 'film';
       }
     } else {
       // Use aggregation for efficient random series selection with episodes and watch progress
