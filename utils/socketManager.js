@@ -123,6 +123,12 @@ class SocketManager {
             // Use cached duration for efficiency
             totalDuration = existingProgress.totalDuration;
             progressPercentage = Math.round((data.progress / totalDuration) * 100);
+            
+            // IMPORTANT: Only allow forward progress - never go backward
+            if (data.progress <= existingProgress.seconds) {
+              console.log(`Progress not updated: ${data.progress}s <= existing ${existingProgress.seconds}s for video ${data.videoId}`);
+              return; // Don't update if new progress is less than or equal to existing
+            }
           } else {
             // Get video details to calculate duration (only first time)
             const video = await Video.findById(data.videoId);
@@ -141,13 +147,22 @@ class SocketManager {
             lastUpdated: Date.now(),
           };
           
+          console.log(`Progress updated: ${data.progress}s (${progressPercentage}%) for video ${data.videoId}`);
+          
           // Update in-memory cache for fast access
           this.videoProgress[userId][data.videoId] = progressData;
           
-          // Save to MongoDB (upsert)
+          // Save to MongoDB (upsert) - only update if progress is forward
           try {
             await WatchProgress.findOneAndUpdate(
-              { userId, videoId: data.videoId },
+              { 
+                userId, 
+                videoId: data.videoId,
+                $or: [
+                  { seconds: { $lt: data.progress } }, // Only update if new progress is greater
+                  { seconds: { $exists: false } } // Or if no progress exists yet
+                ]
+              },
               {
                 seconds: data.progress,
                 percentage: progressPercentage,
@@ -288,6 +303,14 @@ class SocketManager {
         this.videoProgress[userId] = {};
       }
     }
+  }
+
+  // Get current watch progress for a user and video
+  getUserVideoProgress(userId, videoId) {
+    if (!this.videoProgress[userId] || !this.videoProgress[userId][videoId]) {
+      return null;
+    }
+    return this.videoProgress[userId][videoId];
   }
 
   // Get video duration efficiently with caching
