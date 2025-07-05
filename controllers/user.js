@@ -34,11 +34,11 @@ const signUp = async (req, res) => {
       requestedAt: Date.now(),
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
-    // await sendEmail(
-    //   email,
-    //   "Your One-Time Password (Money Minds)",
-    //   `Hello ${firstName},\n\nYour One-Time Password (OTP) to continue with Money Minds is:\n\n🔐 OTP: ${otpCode}\n\nThis code is valid for 5 minutes. Please do not share it with anyone.\n\nIf you did not request this OTP, please ignore this message.\n\nThank you,  \nThe Money Minds Team`
-    // );
+    await sendEmail(
+      email,
+      "Your One-Time Password (Money Minds)",
+      `Hello ${firstName},\n\nYour One-Time Password (OTP) to continue with Money Minds is:\n\n🔐 OTP: ${otpCode}\n\nThis code is valid for 5 minutes. Please do not share it with anyone.\n\nIf you did not request this OTP, please ignore this message.\n\nThank you,  \nThe Money Minds Team`
+    );
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
@@ -84,20 +84,20 @@ const sendOtp = async (req, res) => {
       requestedAt: Date.now(),
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
-    //     await sendEmail(
-    //         email,
-    //         'Your One-Time Password (Money Minds)',
-    //         `Hello ${user.firstName},
+        await sendEmail(
+            email,
+            'Your One-Time Password (Money Minds)',
+            `Hello ${user.firstName},
 
-    // Your One-Time Password (OTP) to continue with Money Minds is: ${otpCode}
+    Your One-Time Password (OTP) to continue with Money Minds is: ${otpCode}
 
-    // This code is valid for 5 minutes. Please do not share it with anyone.
+    This code is valid for 5 minutes. Please do not share it with anyone.
 
-    // If you did not request this OTP, please ignore this message.
+    If you did not request this OTP, please ignore this message.
 
-    // Thank you,
-    // The Money Minds Team`
-    //       );
+    Thank you,
+    The Money Minds Team`
+          );
     return successResponse(
       res,
       200,

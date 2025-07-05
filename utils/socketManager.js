@@ -278,7 +278,9 @@ class SocketManager {
   // Load user's watch progress from database to memory cache
   async loadUserWatchProgress(userId) {
     try {
+      console.log(`🔍 [Socket Manager] Loading watch progress for user: ${userId}`);
       const watchProgressList = await WatchProgress.find({ userId });
+      console.log(`📊 [Socket Manager] Found ${watchProgressList.length} progress records in database`);
       
       // Initialize user's progress object if not exists
       if (!this.videoProgress[userId]) {
@@ -287,6 +289,7 @@ class SocketManager {
       
       // Load each progress record into memory
       watchProgressList.forEach(progress => {
+        console.log(`📹 [Socket Manager] Loading progress: Video ${progress.videoId} - ${progress.percentage}% (${progress.seconds}s)`);
         this.videoProgress[userId][progress.videoId.toString()] = {
           seconds: progress.seconds,
           percentage: progress.percentage,
@@ -295,9 +298,11 @@ class SocketManager {
         };
       });
       
-      console.log(`Loaded ${watchProgressList.length} watch progress records for user ${userId}`);
+      console.log(`✅ [Socket Manager] Loaded ${watchProgressList.length} watch progress records for user ${userId}`);
+      console.log(`📊 [Socket Manager] User now has progress for ${Object.keys(this.videoProgress[userId]).length} videos in memory`);
     } catch (error) {
-      console.error('Failed to load watch progress from database:', error.message);
+      console.error('❌ [Socket Manager] Failed to load watch progress from database:', error.message);
+      console.error('❌ [Socket Manager] Stack:', error.stack);
       // Initialize empty progress object if DB load fails
       if (!this.videoProgress[userId]) {
         this.videoProgress[userId] = {};

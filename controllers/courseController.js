@@ -281,12 +281,16 @@ const getCourseById = async (req, res) => {
 const getContinueLearning = async (req, res) => {
   try {
     const userId = req.userId;
+    console.log('🔍 [Continue Learning] Starting API call for user:', userId);
 
     // Get all campuses where user is a member
     const userCampuses = await Campus.find({ 'members.userId': userId });
     const campusIds = userCampuses.map(campus => campus._id);
+    console.log('🏫 [Continue Learning] User campuses found:', userCampuses.length);
+    console.log('🏫 [Continue Learning] Campus IDs:', campusIds.map(id => id.toString()));
 
     if (campusIds.length === 0) {
+      console.log('❌ [Continue Learning] No campuses found for user');
       return successResponse(res, 200, 'No campuses found for user', {
         continueLearning: [],
         pagination: {
@@ -299,6 +303,7 @@ const getContinueLearning = async (req, res) => {
     }
 
     // Get all courses from user's campuses with modules and lessons
+    console.log('📚 [Continue Learning] Fetching courses from user campuses...');
     const coursesWithProgress = await Course.aggregate([
       { $match: { campusId: { $in: campusIds } } },
       {
@@ -312,8 +317,8 @@ const getContinueLearning = async (req, res) => {
       {
         $lookup: {
           from: 'lessons',
-          localField: '_id',
-          foreignField: 'courseId',
+          localField: 'modules._id',
+          foreignField: 'moduleId',
           as: 'lessons'
         }
       },
@@ -395,10 +400,23 @@ const getContinueLearning = async (req, res) => {
     ]);
 
     // Process each course to calculate actual progress from socket manager
+    console.log('📊 [Continue Learning] Processing courses, total found:', coursesWithProgress.length);
+    console.log('🎯 [Continue Learning] User progress in socket manager:', socketManager.videoProgress[userId] ? Object.keys(socketManager.videoProgress[userId]).length : 0, 'videos');
+    
+    // If no progress in memory, try loading from database
+    if (!socketManager.videoProgress[userId] || Object.keys(socketManager.videoProgress[userId]).length === 0) {
+      console.log('⚠️ [Continue Learning] No progress in memory, loading from database...');
+      await socketManager.loadUserWatchProgress(userId);
+      console.log('🔄 [Continue Learning] After loading from DB, user has progress for:', socketManager.videoProgress[userId] ? Object.keys(socketManager.videoProgress[userId]).length : 0, 'videos');
+    }
+    
     const processedCourses = coursesWithProgress.map(course => {
       let videosWithProgress = 0;
       let totalVideos = 0;
       let latestProgressTime = 0;
+
+      console.log(`📖 [Continue Learning] Processing course: "${course.title}" (${course._id})`);
+      console.log(`📖 [Continue Learning] Course has ${course.lessons.length} lessons`);
 
       // Count videos with progress from socket manager
       course.lessons.forEach(lesson => {
@@ -408,11 +426,16 @@ const getContinueLearning = async (req, res) => {
                           socketManager.videoProgress[userId][lesson._id.toString()];
           if (progress && progress.percentage > 0) {
             videosWithProgress++;
+            console.log(`📹 [Continue Learning] Found progress for lesson ${lesson._id}: ${progress.percentage}% (${progress.seconds}s)`);
             // Track the most recent progress time using actual timestamp
             latestProgressTime = Math.max(latestProgressTime, progress.lastUpdated || 0);
+          } else {
+            console.log(`📹 [Continue Learning] No progress for lesson ${lesson._id}`);
           }
         }
       });
+
+      console.log(`📊 [Continue Learning] Course "${course.title}": ${videosWithProgress}/${totalVideos} videos with progress`);
 
       // Calculate course progress percentage: (videos with progress / total videos) * 100
       const courseProgress = totalVideos > 0 ? Math.round((videosWithProgress / totalVideos) * 100) : 0;
@@ -436,8 +459,13 @@ const getContinueLearning = async (req, res) => {
     });
 
     // Filter courses that have actual progress and sort by recent progress
+    console.log('🔍 [Continue Learning] Filtering courses with progress...');
     const coursesWithActualProgress = processedCourses
-      .filter(course => course.courseProgress > 0)
+      .filter(course => {
+        const hasProgress = course.courseProgress > 0;
+        console.log(`📊 [Continue Learning] Course "${course.title}": ${hasProgress ? 'HAS' : 'NO'} progress (${course.courseProgress}%)`);
+        return hasProgress;
+      })
       .sort((a, b) => {
         // First sort by latest progress time (most recent first)
         if (b.latestProgressTime !== a.latestProgressTime) {
@@ -451,13 +479,16 @@ const getContinueLearning = async (req, res) => {
         return new Date(b.createdAt) - new Date(a.createdAt);
       });
 
-
+    console.log('✅ [Continue Learning] Final result:', coursesWithActualProgress.length, 'courses with progress');
+    console.log('📋 [Continue Learning] Returning courses:', coursesWithActualProgress.map(c => `"${c.title}" (${c.courseProgress}%)`));
 
     return successResponse(res, 200, 'Continue learning courses retrieved successfully', {
       continueLearning: coursesWithActualProgress
     }, 'continueLearning');
 
   } catch (error) {
+    console.error('❌ [Continue Learning] Error:', error.message);
+    console.error('❌ [Continue Learning] Stack:', error.stack);
     return errorResponse(res, 500, 'Failed to get continue learning courses', error.message);
   }
 };
