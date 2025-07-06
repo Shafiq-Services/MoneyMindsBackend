@@ -10,6 +10,7 @@ const config = require("./config/config");
 const connectDB = require("./config/db");
 const socketManager = require("./utils/socketManager");
 const socketTester = require("./utils/socketTester");
+const { initializeSubscriptionScheduler } = require("./utils/subscriptionScheduler");
 const subscriptionController = require('./controllers/subscriptionController');
 const subscriptionRoutes = require('./routes/subscription');
 
@@ -23,6 +24,11 @@ socketManager.initialize(server);
 setTimeout(() => {
   socketTester.initialize();
 }, 1000);
+
+// Initialize subscription expiry warning scheduler
+setTimeout(() => {
+  initializeSubscriptionScheduler();
+}, 2000); // Wait a bit longer to ensure everything is initialized
 
 // Stripe webhook endpoint
 // This route must be before `express.json()` to receive the raw body

@@ -28,6 +28,9 @@ const createCourse = async (req, res) => {
       imageUrl
     });
 
+    // Broadcast new course release to campus members
+    await socketManager.broadcastNewCourseRelease(course, campus.title);
+
     // Structure response in organized format
     const responseData = {
       _id: course._id,

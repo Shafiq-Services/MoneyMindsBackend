@@ -24,13 +24,15 @@ const postVideo = async (req, res) => {
     }
 
     let episodeNumber = undefined;
+    let series = null;
+    
     if (type === 'episode') {
       if (!seriesId || !seasonNumber) {
         return errorResponse(res, 400, 'seriesId and seasonNumber are required for episodes.');
       }
-      // Validate seriesId exists
-      const seriesExists = await Series.exists({ _id: seriesId });
-      if (!seriesExists) {
+      // Validate seriesId exists and get series info
+      series = await Series.findById(seriesId);
+      if (!series) {
         return errorResponse(res, 400, 'Invalid seriesId: series not found.');
       }
       // Find the current max episodeNumber in this season
@@ -58,6 +60,13 @@ const postVideo = async (req, res) => {
       resolutions,
       posterUrl
     });
+
+    // Broadcast notifications based on content type
+    if (type === 'film') {
+      await socketManager.broadcastNewFilmRelease(video);
+    } else if (type === 'episode' && series) {
+      await socketManager.broadcastNewSeriesContentRelease(video, series.title);
+    }
 
     // Order the response fields as requested
     const videoObj = video.toObject();

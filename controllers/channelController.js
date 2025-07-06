@@ -92,7 +92,9 @@ const sendMessage = async (req, res) => {
     if (!text && !mediaUrl) {
       return errorResponse(res, 400, 'Message must contain text or mediaUrl');
     }
-
+    if (mediaUrl && !mediaType) {
+      return errorResponse(res, 400, 'mediaType is required when mediaUrl is provided');
+    }
     // Check channel exists
     const channel = await Channel.findById(channelId).populate('campusId');
     if (!channel) {

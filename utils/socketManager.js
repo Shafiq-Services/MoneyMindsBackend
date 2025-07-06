@@ -488,6 +488,190 @@ class SocketManager {
       return 1800; // 30 minutes fallback
     }
   }
+
+  // NOTIFICATION BROADCAST METHODS
+
+  // Global broadcast to all users
+  broadcastGlobalNotification(eventName, data) {
+    console.log(`📢 [Socket Manager] Broadcasting global notification: ${eventName}`);
+    this.io.emit(eventName, data);
+  }
+
+  // Campus-specific broadcast to all campus members
+  async broadcastCampusNotification(eventName, data, campusId) {
+    console.log(`📢 [Socket Manager] Broadcasting campus notification: ${eventName} to campus ${campusId}`);
+    
+    // Find all users in this campus
+    const campus = await Campus.findById(campusId);
+    if (!campus) {
+      console.log(`❌ [Socket Manager] Campus ${campusId} not found for notification`);
+      return;
+    }
+
+    const memberIds = campus.members.map(member => member.userId.toString());
+    
+    // Send notification to each campus member
+    memberIds.forEach(userId => {
+      this.io.to(`user:${userId}`).emit(eventName, data);
+    });
+  }
+
+  // Send notification to specific user
+  broadcastUserNotification(eventName, data, userId) {
+    console.log(`📢 [Socket Manager] Broadcasting user notification: ${eventName} to user ${userId}`);
+    this.io.to(`user:${userId}`).emit(eventName, data);
+  }
+
+  // CONTENT RELEASE NOTIFICATIONS
+
+  // New Campus Release (Global)
+  async broadcastNewCampusRelease(campus) {
+    const notificationData = {
+      _id: campus._id,
+      slug: campus.slug,
+      title: campus.title,
+      imageUrl: campus.imageUrl,
+      createdAt: campus.createdAt,
+      notification: {
+        title: "New Campus Available",
+        message: `New campus '${campus.title}' is now available to join.`,
+        type: "success",
+        icon: "✓"
+      }
+    };
+    
+    this.broadcastGlobalNotification('new-campus-released', notificationData);
+  }
+
+  // New Film Release (Global)
+  async broadcastNewFilmRelease(film) {
+    const notificationData = {
+      _id: film._id,
+      title: film.title,
+      description: film.description,
+      posterUrl: film.posterUrl,
+      videoUrl: film.videoUrl,
+      createdAt: film.createdAt,
+      notification: {
+        title: "New Film Released",
+        message: `New film '${film.title}' is now available to watch.`,
+        type: "success",
+        icon: "✓"
+      }
+    };
+    
+    this.broadcastGlobalNotification('new-film-released', notificationData);
+  }
+
+  // New Series/Season/Episode Release (Global)
+  async broadcastNewSeriesContentRelease(content, seriesTitle) {
+    const notificationData = {
+      _id: content._id,
+      seriesId: content.seriesId,
+      seriesTitle: seriesTitle,
+      type: content.type,
+      title: content.title,
+      seasonNumber: content.seasonNumber,
+      episodeNumber: content.episodeNumber,
+      description: content.description,
+      posterUrl: content.posterUrl,
+      createdAt: content.createdAt,
+      notification: {
+        title: "New Series Content",
+        message: `New ${content.type} '${content.title}' from ${seriesTitle} is now available.`,
+        type: "success",
+        icon: "✓"
+      }
+    };
+    
+    this.broadcastGlobalNotification('new-series-content-released', notificationData);
+  }
+
+  // New Book Release (Global)
+  async broadcastNewBookRelease(book) {
+    const notificationData = {
+      _id: book._id,
+      title: book.title,
+      author: book.author,
+      image: book.image,
+      content: book.content,
+      createdAt: book.createdAt,
+      notification: {
+        title: "New Book Available",
+        message: `New book '${book.title}' by ${book.author} is now available to read.`,
+        type: "success",
+        icon: "✓"
+      }
+    };
+    
+    this.broadcastGlobalNotification('new-book-released', notificationData);
+  }
+
+  // New Course Release (Campus Members)
+  async broadcastNewCourseRelease(course, campusTitle) {
+    const notificationData = {
+      _id: course._id,
+      campusId: course.campusId,
+      campusTitle: campusTitle,
+      title: course.title,
+      imageUrl: course.imageUrl,
+      createdAt: course.createdAt,
+      notification: {
+        title: "New Course Added",
+        message: `New course '${course.title}' was added to ${campusTitle}.`,
+        type: "success",
+        icon: "✓"
+      }
+    };
+    
+    await this.broadcastCampusNotification('new-course-released', notificationData, course.campusId);
+  }
+
+  // New Lesson Release (Campus Members)
+  async broadcastNewLessonRelease(lesson, courseTitle, campusId, campusTitle) {
+    const notificationData = {
+      _id: lesson._id,
+      courseId: lesson.courseId,
+      courseTitle: courseTitle,
+      campusId: campusId,
+      campusTitle: campusTitle,
+      title: lesson.name,
+      createdAt: lesson.createdAt,
+      notification: {
+        title: "New Lesson Added",
+        message: `A new lesson was added to the ${courseTitle} course.`,
+        type: "success",
+        icon: "✓"
+      }
+    };
+    
+    await this.broadcastCampusNotification('new-lesson-released', notificationData, campusId);
+  }
+
+  // Subscription Expiry Warning (Specific User)
+  async broadcastSubscriptionExpiryWarning(subscription, user, campusTitle) {
+    const expiryDate = new Date(subscription.currentPeriodEnd);
+    const now = new Date();
+    const daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+
+    const notificationData = {
+      _id: subscription._id,
+      userId: user._id,
+      campusId: subscription.campusId,
+      campusTitle: campusTitle,
+      expiryDate: subscription.currentPeriodEnd,
+      daysRemaining: daysRemaining,
+      subscriptionType: subscription.plan,
+      notification: {
+        title: "Subscription Expiring Soon",
+        message: `Your subscription is about to expire in ${daysRemaining} days. Renew now to avoid any service interruptions.`,
+        type: "warning",
+        icon: "!"
+      }
+    };
+    
+    this.broadcastUserNotification('subscription-expiry-warning', notificationData, user._id);
+  }
 }
 
 // Singleton instance

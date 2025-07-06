@@ -4,6 +4,7 @@ const Subscription = require('../models/subscription');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { stripeWebhookSecret } = require('../config/config');
 const sendEmail = require('../utils/sendEmail');
+const socketManager = require('../utils/socketManager');
 
 // Stripe Price IDs from environment variables
 const MONTHLY_PRICE_ID = process.env.MONTHLY_PRICE_ID;
@@ -384,4 +385,70 @@ exports.handleStripeWebhook = async (req, res) => {
   }
 
   return successResponse(res, 200, 'Webhook received');
+};
+
+/**
+ * Check for subscription expiry warnings and send notifications
+ * This function can be called periodically (e.g., via cron job)
+ */
+exports.checkSubscriptionExpiryWarnings = async () => {
+  try {
+    console.log('🔔 [Subscription Expiry] Checking for subscriptions expiring in 3 days...');
+    
+    // Calculate date 3 days from now
+    const threeDaysFromNow = new Date();
+    threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+    threeDaysFromNow.setHours(23, 59, 59, 999); // End of day
+
+    const twoDaysFromNow = new Date();
+    twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+    twoDaysFromNow.setHours(0, 0, 0, 0); // Start of day
+
+    // Find active subscriptions expiring in exactly 3 days
+    const expiringSubscriptions = await Subscription.find({
+      status: 'active',
+      currentPeriodEnd: {
+        $gte: twoDaysFromNow,
+        $lte: threeDaysFromNow
+      }
+    });
+
+    console.log(`🔔 [Subscription Expiry] Found ${expiringSubscriptions.length} subscriptions expiring in 3 days`);
+
+    for (const subscription of expiringSubscriptions) {
+      try {
+        // Get user details
+        const user = await User.findById(subscription.userId);
+        if (!user) {
+          console.log(`❌ [Subscription Expiry] User not found for subscription ${subscription._id}`);
+          continue;
+        }
+
+        // For now, we'll use a generic campus title since subscriptions aren't necessarily tied to specific campuses
+        const campusTitle = 'Money Minds';
+
+        // Send socket notification
+        await socketManager.broadcastSubscriptionExpiryWarning(subscription, user, campusTitle);
+
+        // Send email notification
+        try {
+          await sendEmail(
+            user.email,
+            'Subscription Expiring Soon - Action Required',
+            `Hello ${user.firstName},\n\nYour Money Minds ${subscription.plan} subscription is about to expire in 3 days (${new Date(subscription.currentPeriodEnd).toLocaleDateString()}).\n\nTo avoid any interruption to your service, please:\n• Check your payment method is up to date\n• Ensure sufficient funds are available\n• Contact support if you need assistance\n\nRenew now to continue enjoying all premium features and content.\n\nBest regards,\nThe Money Minds Team`
+          );
+          console.log(`✅ [Subscription Expiry] Notification sent to ${user.email}`);
+        } catch (emailError) {
+          console.error(`❌ [Subscription Expiry] Failed to send email to ${user.email}:`, emailError.message);
+        }
+
+      } catch (error) {
+        console.error(`❌ [Subscription Expiry] Error processing subscription ${subscription._id}:`, error.message);
+      }
+    }
+
+    console.log('✅ [Subscription Expiry] Finished checking subscription expiry warnings');
+  } catch (error) {
+    console.error('❌ [Subscription Expiry] Error in checkSubscriptionExpiryWarnings:', error.message);
+  }
 }; 

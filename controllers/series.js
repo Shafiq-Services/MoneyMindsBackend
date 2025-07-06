@@ -14,6 +14,10 @@ const addSeries = async (req, res) => {
       return errorResponse(res, 400, 'title is required.');
     }
     const series = await Series.create({ title, description, posterUrl });
+    
+    // Broadcast new series release to all users
+    await socketManager.broadcastNewSeriesContentRelease(series, series.title);
+    
     return res.status(201).json({ status: true, message: 'Series created successfully.', series });
   } catch (err) {
     return errorResponse(res, 500, 'Failed to create series.', err.message);

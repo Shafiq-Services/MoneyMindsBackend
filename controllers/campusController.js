@@ -27,6 +27,9 @@ const createCampus = async (req, res) => {
       members: []
     });
 
+    // Broadcast new campus release to all users
+    await socketManager.broadcastNewCampusRelease(campus);
+
     // Structure response in organized format
     const responseData = {
       _id: campus._id,

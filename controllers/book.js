@@ -2,6 +2,7 @@
 const mongoose = require("mongoose");
 const Book = require("../models/book");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
+const socketManager = require("../utils/socketManager");
 
 /**
  * @description Create Book
@@ -23,6 +24,9 @@ module.exports.createBook = async (req, res) => {
       image,
       content,
     });
+
+    // Broadcast new book release to all users
+    await socketManager.broadcastNewBookRelease(book);
 
     //Response
     return successResponse(res, 201, "Book created successfully", book);

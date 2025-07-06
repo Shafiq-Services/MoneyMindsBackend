@@ -15,7 +15,13 @@ const createLesson = async (req, res) => {
     }
 
     // Verify module exists and get course info (admin operation - no membership check required)
-    const module = await Module.findById(moduleId).populate('courseId');
+    const module = await Module.findById(moduleId).populate({
+      path: 'courseId',
+      populate: {
+        path: 'campusId',
+        select: 'title'
+      }
+    });
     if (!module) {
       return errorResponse(res, 404, 'Module not found');
     }
@@ -32,13 +38,21 @@ const createLesson = async (req, res) => {
       resolutions: resolutions
     });
 
+    // Broadcast new lesson release to campus members
+    await socketManager.broadcastNewLessonRelease(
+      lesson,
+      module.courseId.title,
+      module.courseId.campusId._id,
+      module.courseId.campusId.title
+    );
+
     // Structure response in organized format with resolutions
     const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][lesson._id] ? socketManager.videoProgress[req.userId][lesson._id] : null;
     const responseData = addVideoResolutions({
       _id: lesson._id,
       moduleId: lesson.moduleId,
       courseId: module.courseId._id,
-      campusId: module.courseId.campusId,
+      campusId: module.courseId.campusId._id,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
       resolutions: lesson.resolutions || [],
