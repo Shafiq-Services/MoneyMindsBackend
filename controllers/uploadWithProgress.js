@@ -35,6 +35,22 @@ const validateImageType = (type) => {
   return validTypes.includes(type);
 };
 
+// Helper function to get video folder based on type
+const getVideoFolder = (videoType) => {
+  const videoFolders = {
+    'film': 'videos/films',
+    'episode': 'videos/episodes', 
+    'lesson': 'videos/lessons'
+  };
+  return videoFolders[videoType] || 'videos/films';
+};
+
+// Helper function to validate video type
+const validateVideoType = (videoType) => {
+  const validTypes = ['film', 'episode', 'lesson'];
+  return validTypes.includes(videoType);
+};
+
 const uploadImageWithProgress = (req, res) => {
   const imageId = uuidv4();
 
@@ -203,153 +219,146 @@ const uploadImageWithProgress = (req, res) => {
   }
 };
 
-const uploadVideoWithProgress = (req, res) => {
-  const videoId = uuidv4();
-
+const uploadVideoWithProgress = async (req, res) => {
   try {
-    const bb = busboy({ 
-      headers: req.headers,
-      limits: {
-        fileSize: 500 * 1024 * 1024, // 500MB for videos
-      }
-    });
+    console.log('🎬 Starting video upload with progress...');
+    
+    // Check for video type in query parameter
+    const videoType = req.query.type;
+    if (!videoType) {
+      return errorResponse(res, 400, 'Video type is required. Use query parameter: ?type=film|episode|lesson');
+    }
+    
+    if (!validateVideoType(videoType)) {
+      return errorResponse(res, 400, 'Invalid video type. Valid types: film, episode, lesson');
+    }
 
-    let fileBuffer = Buffer.alloc(0);
-    let totalSize = 0;
-    let uploadedBytes = 0;
-    let fileName = '';
+    // File validation
+    if (!req.file) {
+      return errorResponse(res, 400, 'No video file provided');
+    }
 
-    bb.on('file', (fieldname, file, info) => {
-      const { filename, mimeType } = info;
-      
-      // Validate file type
-      const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
-      if (!allowedVideoTypes.includes(mimeType)) {
-        return errorResponse(res, 400, 'Invalid file type');
-      }
+    if (req.file.size > 2 * 1024 * 1024 * 1024) { // 2GB limit
+      return errorResponse(res, 400, 'Video file too large. Maximum size is 2GB');
+    }
 
-      fileName = filename;
+    // Validate video file type
+    const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
+    if (!allowedVideoTypes.includes(req.file.mimetype)) {
+      return errorResponse(res, 400, 'Invalid video file type');
+    }
 
-      // Track real upload progress
-      file.on('data', (chunk) => {
-        fileBuffer = Buffer.concat([fileBuffer, chunk]);
-        uploadedBytes += chunk.length;
-        
-        if (totalSize > 0) {
-          const uploadProgress = Math.round((uploadedBytes / totalSize) * 100);
-          // Emit progress via socket
-          if (socketManager.io) {
-            socketManager.io.emit('uploadProgress', {
-              id: videoId,
-              type: 'video',
-              status: 'uploading',
-              uploadProgress: uploadProgress,
-              overallProgress: uploadProgress * 0.3, // Upload is 30% of total
-              message: `Uploading... ${uploadProgress}%`
-            });
-          }
-        }
-      });
+    const videoId = uuidv4();
+    const fileExtension = path.extname(req.file.originalname).toLowerCase();
 
-      file.on('end', async () => {
-        // Emit upload complete, transcoding starting
-        if (socketManager.io) {
-          socketManager.io.emit('uploadProgress', {
-            id: videoId,
-            type: 'video',
-            status: 'transcoding',
-            uploadProgress: 100,
-            transcodingProgress: 0,
-            overallProgress: 30,
-            message: 'Starting video transcoding...'
-          });
-        }
-        
-        try {
-          // Start transcoding
-          const transcodeResult = await transcodeToHLS(fileBuffer, videoId);
-          
-          // Emit completion
-          if (socketManager.io) {
-            socketManager.io.emit('uploadProgress', {
-              id: videoId,
-              type: 'video',
-              status: 'completed',
-              uploadProgress: 100,
-              transcodingProgress: 100,
-              overallProgress: 100,
-              message: 'Upload and processing completed successfully',
-              result: {
-                videoUrl: transcodeResult.videoUrl,
-                resolutions: transcodeResult.resolutions,
-                duration: transcodeResult.duration,
-                videoId: videoId,
-                originalFileName: fileName,
-                fileSize: uploadedBytes
-              }
-            });
-          }
-          
-          console.log(`Video ${videoId} processed successfully:`, transcodeResult);
-          
-        } catch (transcodeError) {
-          console.error(`Video ${videoId} processing failed:`, transcodeError.message);
-          // Emit error
-          if (socketManager.io) {
-            socketManager.io.emit('uploadProgress', {
-              id: videoId,
-              type: 'video',
-              status: 'failed',
-              message: `Failed: ${transcodeError.message}`,
-              error: transcodeError.message
-            });
-          }
-        }
-      });
-    });
-
-    bb.on('field', (fieldname, val) => {
-      if (fieldname === 'totalSize') {
-        totalSize = parseInt(val);
-      }
-    });
-
-    bb.on('error', (err) => {
-      if (socketManager.io) {
-        socketManager.io.emit('uploadProgress', {
-          id: videoId,
-          type: 'video',
-          status: 'failed',
-          message: `Failed: ${err.message}`,
-          error: err.message
-        });
-      }
-      errorResponse(res, 400, err.message);
-    });
-
-    bb.on('finish', () => {
-      res.status(202).json({
-        status: true,
-        message: 'Video upload initiated. Processing will complete shortly.',
-        videoId: videoId,
-        progressId: videoId,
-        processingStatus: 'in_progress',
-      });
-    });
-
-    req.pipe(bb);
-
-  } catch (err) {
-    if (socketManager.io) {
-      socketManager.io.emit('uploadProgress', {
-        id: videoId,
-        type: 'video',
-        status: 'failed',
-        message: `Failed: ${err.message}`,
-        error: err.message
+    // Emit upload start event
+    const socketManager = req.app.get('socketManager');
+    if (socketManager) {
+      socketManager.emitToUser(req.userId, 'video-upload-start', {
+        videoId,
+        videoType,
+        originalFileName: req.file.originalname,
+        fileSize: req.file.size
       });
     }
-    return errorResponse(res, 500, 'Failed to initiate video upload', err.message);
+
+    // Store original video file with organized folder structure
+    const videoFolder = getVideoFolder(videoType);
+    const originalFileName = `${videoFolder}/${videoId}/original${fileExtension}`;
+
+    // Upload original video file
+    console.log('📤 Starting original video upload...');
+    if (socketManager) {
+      socketManager.emitToUser(req.userId, 'video-upload-progress', {
+        videoId,
+        videoType,
+        stage: 'uploading',
+        progress: 0,
+        message: 'Uploading original video...'
+      });
+    }
+
+    const originalUploadResult = await uploadFile(originalFileName, req.file.buffer);
+    console.log('✅ Original video upload complete');
+
+    if (socketManager) {
+      socketManager.emitToUser(req.userId, 'video-upload-progress', {
+        videoId,
+        videoType,
+        stage: 'uploading',
+        progress: 50,
+        message: 'Original video uploaded successfully'
+      });
+    }
+
+    // Transcode video to HLS with organized folder structure
+    try {
+      console.log('🔄 Starting video transcoding...');
+      if (socketManager) {
+        socketManager.emitToUser(req.userId, 'video-upload-progress', {
+          videoId,
+          videoType,
+          stage: 'transcoding',
+          progress: 60,
+          message: 'Starting video transcoding...'
+        });
+      }
+
+      const transcodeResult = await transcodeToHLS(req.file.buffer, videoId, videoType);
+      console.log('✅ Video transcoding complete');
+
+      if (socketManager) {
+        socketManager.emitToUser(req.userId, 'video-upload-complete', {
+          videoId,
+          videoType,
+          videoUrl: transcodeResult.videoUrl,
+          originalVideoUrl: originalUploadResult.fileUrl,
+          resolutions: transcodeResult.resolutions,
+          duration: transcodeResult.duration,
+          createdAt: new Date()
+        });
+      }
+
+      // Response data
+      const responseData = {
+        _id: videoId,
+        videoUrl: transcodeResult.videoUrl,
+        originalVideoUrl: originalUploadResult.fileUrl,
+        videoType: videoType,
+        createdAt: new Date()
+      };
+
+      return successResponse(res, 201, 'Video uploaded and processed successfully', responseData, 'video');
+
+    } catch (transcodeError) {
+      console.error('❌ Video transcoding failed:', transcodeError);
+      
+      if (socketManager) {
+        socketManager.emitToUser(req.userId, 'video-upload-error', {
+          videoId,
+          videoType,
+          error: transcodeError.message,
+          stage: 'transcoding'
+        });
+      }
+
+      return errorResponse(res, 500, 'Failed to process video', transcodeError.message);
+    }
+
+  } catch (err) {
+    console.error('❌ Video upload failed:', err);
+    
+    const socketManager = req.app.get('socketManager');
+    if (socketManager) {
+      socketManager.emitToUser(req.userId, 'video-upload-error', {
+        videoId: req.body.videoId || 'unknown',
+        videoType: req.query.type || 'unknown',
+        error: err.message,
+        stage: 'upload'
+      });
+    }
+
+    return errorResponse(res, 500, 'Failed to upload video', err.message);
   }
 };
 

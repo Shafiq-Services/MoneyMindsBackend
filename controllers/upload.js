@@ -130,66 +130,87 @@ const uploadImage = async (req, res) => {
   }
 };
 
+// Helper function to get video folder based on type
+const getVideoFolder = (videoType) => {
+  const videoFolders = {
+    'film': 'videos/films',
+    'episode': 'videos/episodes', 
+    'lesson': 'videos/lessons'
+  };
+  return videoFolders[videoType] || 'videos/films';
+};
+
+// Helper function to validate video type
+const validateVideoType = (videoType) => {
+  const validTypes = ['film', 'episode', 'lesson'];
+  return validTypes.includes(videoType);
+};
+
 const uploadVideo = async (req, res) => {
   try {
     console.log('🎬 Starting video upload to storage...');
-    console.log('📁 File info:', {
-      originalname: req.file?.originalname,
-      mimetype: req.file?.mimetype,
-      size: req.file?.size,
-      userId: req.userId
-    });
+    
+    // Check for video type in query parameter
+    const videoType = req.query.type;
+    if (!videoType) {
+      return errorResponse(res, 400, 'Video type is required. Use query parameter: ?type=film|episode|lesson');
+    }
+    
+    if (!validateVideoType(videoType)) {
+      return errorResponse(res, 400, 'Invalid video type. Valid types: film, episode, lesson');
+    }
 
+    // File validation
     if (!req.file) {
       return errorResponse(res, 400, 'No video file provided');
     }
 
-    // Validate file size
-    if (req.file.size > 500 * 1024 * 1024) {
-      return errorResponse(res, 400, 'File size exceeds 500MB limit');
+    if (req.file.size > 2 * 1024 * 1024 * 1024) { // 2GB limit
+      return errorResponse(res, 400, 'Video file too large. Maximum size is 2GB');
     }
 
-    // Validate file type
+    // Validate video file type
     const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
     if (!allowedVideoTypes.includes(req.file.mimetype)) {
       return errorResponse(res, 400, 'Invalid video file type');
     }
 
     const videoId = uuidv4();
+    const fileExtension = path.extname(req.file.originalname).toLowerCase();
 
-    // Store original video file
-    const fileExtension = path.extname(req.file.originalname);
-    const originalFileName = `videos/${videoId}/original${fileExtension}`;
-    
+    // Store original video file with organized folder structure
+    const videoFolder = getVideoFolder(videoType);
+    const originalFileName = `${videoFolder}/${videoId}/original${fileExtension}`;
+
     // Upload original video file
     console.log('📤 Starting original video upload...');
     const originalUploadResult = await uploadFile(originalFileName, req.file.buffer);
     console.log('✅ Original video upload complete');
 
-    // Start transcoding
+    // Transcode video to HLS with organized folder structure
     try {
       console.log('🔄 Starting video transcoding...');
-      const transcodeResult = await transcodeToHLS(req.file.buffer, videoId);
+      const transcodeResult = await transcodeToHLS(req.file.buffer, videoId, videoType);
       console.log('✅ Video transcoding complete');
-      
-      // Structure response to match expected format
+
+      // Response data
       const responseData = {
         _id: videoId,
         videoUrl: transcodeResult.videoUrl,
         originalVideoUrl: originalUploadResult.fileUrl,
-        resolutions: transcodeResult.resolutions,
+        videoType: videoType,
         createdAt: new Date()
       };
 
       return successResponse(res, 201, 'Video uploaded and processed successfully', responseData, 'video');
-      
+
     } catch (transcodeError) {
-      console.error('❌ Transcoding failed:', transcodeError.message);
+      console.error('❌ Video transcoding failed:', transcodeError);
       return errorResponse(res, 500, 'Failed to process video', transcodeError.message);
     }
-    
+
   } catch (err) {
-    console.error('❌ Upload failed:', err.message);
+    console.error('❌ Video upload failed:', err);
     return errorResponse(res, 500, 'Failed to upload video', err.message);
   }
 };

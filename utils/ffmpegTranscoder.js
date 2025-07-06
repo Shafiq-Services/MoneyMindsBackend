@@ -61,7 +61,17 @@ const generateHLSResolutions = (sourceHeight) => {
   return resolutions.filter(res => res.height <= sourceHeight);
 };
 
-const transcodeToHLS = async (videoBuffer, videoId) => {
+// Helper function to get video folder based on type
+const getVideoFolder = (videoType) => {
+  const videoFolders = {
+    'film': 'videos/films',
+    'episode': 'videos/episodes', 
+    'lesson': 'videos/lessons'
+  };
+  return videoFolders[videoType] || 'videos/films';
+};
+
+const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
   try {
     const { width, height, duration } = await getVideoResolution(videoBuffer);
     const resolutions = generateHLSResolutions(height);
@@ -81,6 +91,9 @@ const transcodeToHLS = async (videoBuffer, videoId) => {
     const masterPlaylist = [];
     const uploadPromises = [];
     let completedResolutions = 0;
+
+    // Get organized video folder path
+    const videoFolder = getVideoFolder(videoType);
 
     // Generate HLS for each resolution
     for (const resolution of resolutions) {
@@ -121,13 +134,13 @@ const transcodeToHLS = async (videoBuffer, videoId) => {
       masterPlaylist.push(`#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(resolution.bitrate.replace('k', '000'))},RESOLUTION=${Math.round(resolution.height * 16/9)}x${resolution.height}`);
       masterPlaylist.push(`${resolution.height}p/${playlistName}`);
 
-      // Upload playlist and segments
+      // Upload playlist and segments with organized folder structure
       const playlistPath = path.join(outputPath, playlistName);
       const playlistContent = fs.readFileSync(playlistPath);
       
       uploadPromises.push(
         uploadFile(
-          `videos/${videoId}/${resolution.height}p/${playlistName}`,
+          `${videoFolder}/${videoId}/${resolution.height}p/${playlistName}`,
           playlistContent
         )
       );
@@ -140,18 +153,18 @@ const transcodeToHLS = async (videoBuffer, videoId) => {
         
         uploadPromises.push(
           uploadFile(
-            `videos/${videoId}/${resolution.height}p/${segmentFile}`,
+            `${videoFolder}/${videoId}/${resolution.height}p/${segmentFile}`,
             segmentContent
           )
         );
       }
     }
 
-    // Create and upload master playlist
+    // Create and upload master playlist with organized folder structure
     const masterPlaylistContent = `#EXTM3U\n#EXT-X-VERSION:3\n${masterPlaylist.join('\n')}\n`;
     uploadPromises.push(
       uploadFile(
-        `videos/${videoId}/master.m3u8`,
+        `${videoFolder}/${videoId}/master.m3u8`,
         Buffer.from(masterPlaylistContent)
       )
     );
@@ -162,7 +175,7 @@ const transcodeToHLS = async (videoBuffer, videoId) => {
     // Clean up temp files
     fs.rmSync(tempDir, { recursive: true, force: true });
 
-    const videoUrl = getB2S3Url(`videos/${videoId}/master.m3u8`);
+    const videoUrl = getB2S3Url(`${videoFolder}/${videoId}/master.m3u8`);
 
     return {
       videoUrl,
