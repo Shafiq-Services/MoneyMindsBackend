@@ -150,6 +150,7 @@ const listModulesByCourse = async (req, res) => {
           campusId: course.campusId,
           name: lesson.name,
           videoUrl: lesson.videoUrl,
+          notes: lesson.notes || '',
           resolutions: lesson.resolutions || [],
           createdAt: lesson.createdAt,
           watchedProgress: progress ? progress.percentage : 0,
@@ -206,6 +207,7 @@ const getModuleById = async (req, res) => {
         campusId: module.courseId.campusId,
         name: lesson.name,
         videoUrl: lesson.videoUrl,
+        notes: lesson.notes || '',
         resolutions: lesson.resolutions || [],
         createdAt: lesson.createdAt,
         watchedProgress: socketManager.videoProgress[userId]?.[lesson._id] || 0

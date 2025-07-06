@@ -8,7 +8,7 @@ const { addVideoResolutions, fetchResolutionsFromVideoUrl } = require('../utils/
 
 const createLesson = async (req, res) => {
   try {
-    const { moduleId, name, videoUrl } = req.body;
+    const { moduleId, name, videoUrl, notes } = req.body;
 
     if (!moduleId || !name || !videoUrl) {
       return errorResponse(res, 400, 'Module ID, name, and video URL are required');
@@ -35,6 +35,7 @@ const createLesson = async (req, res) => {
       moduleId,
       name,
       videoUrl,
+      notes: notes || '',
       resolutions: resolutions
     });
 
@@ -55,6 +56,7 @@ const createLesson = async (req, res) => {
       campusId: module.courseId.campusId._id,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],
       watchedProgress: progress ? progress.percentage : 0,
       watchSeconds: progress ? progress.seconds : 0,
@@ -71,7 +73,7 @@ const createLesson = async (req, res) => {
 const editLesson = async (req, res) => {
   try {
     const { lessonId } = req.query;
-    const { name, videoUrl } = req.body;
+    const { name, videoUrl, notes } = req.body;
 
     if (!lessonId) {
       return errorResponse(res, 400, 'Lesson ID is required');
@@ -89,6 +91,7 @@ const editLesson = async (req, res) => {
 
     // Admin operation - no membership check required
     if (name) lesson.name = name;
+    if (notes !== undefined) lesson.notes = notes || ''; // Ensure notes is always a string, never null
     if (videoUrl) {
       lesson.videoUrl = videoUrl;
       // If video URL is changed, fetch new resolutions
@@ -109,6 +112,7 @@ const editLesson = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      notes: lesson.notes || '', // Ensure notes is always a string
       resolutions: lesson.resolutions || [],
       watchedProgress: progress ? progress.percentage : 0,
       watchSeconds: progress ? progress.seconds : 0,
@@ -179,6 +183,7 @@ const listLessonsByModule = async (req, res) => {
         campusId: module.courseId.campusId,
         name: lesson.name,
         videoUrl: lesson.videoUrl,
+        notes: lesson.notes || '', // Ensure notes is always a string
         resolutions: lesson.resolutions || [],
         watchedProgress: progress ? progress.percentage : 0,
         watchSeconds: progress ? progress.seconds : 0,
@@ -232,6 +237,7 @@ const getLessonById = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      notes: lesson.notes || '', // Ensure notes is always a string
       watchedProgress: progress ? progress.percentage : 0,
       watchSeconds: progress ? progress.seconds : 0,
       totalDuration: progress ? progress.totalDuration : 0,

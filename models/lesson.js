@@ -5,6 +5,7 @@ const lessonSchema = new mongoose.Schema({
   name: { type: String, required: true },
   videoUrl: { type: String, required: true }, // .m3u8 video URL
   resolutions: [Number], // Available video resolutions (e.g., [1080, 720, 480, 360])
+  notes: { type: String, default: '' }, // Lesson notes, defaults to empty string
   createdAt: { type: Date, default: Date.now }
 });
 

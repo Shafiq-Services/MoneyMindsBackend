@@ -226,6 +226,7 @@ const getCourseById = async (req, res) => {
           campusId: course.campusId._id,
           name: lesson.name,
           videoUrl: lesson.videoUrl,
+          notes: lesson.notes || '',
           resolutions: lesson.resolutions || [],
           createdAt: lesson.createdAt,
           watchedProgress: (() => {
