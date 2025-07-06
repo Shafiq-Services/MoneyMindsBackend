@@ -7,7 +7,9 @@ const userSchema = new mongoose.Schema({
   phone: String,
   username: { type: String, unique: true, sparse: true },
   avatar: { type: String },
+  bio: { type: String, default: '' },
+  country: { type: String, default: '' },
   stripeCustomerId: { type: String },
-});
+}, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

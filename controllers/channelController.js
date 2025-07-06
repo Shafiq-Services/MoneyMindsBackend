@@ -140,7 +140,7 @@ const getChannelMembers = async (req, res) => {
       return errorResponse(res, 403, 'You must be a member of this campus to view members');
     }
     // List all campus members
-    const members = await User.find({ _id: { $in: campus.members.map(m => m.userId) } }, 'email firstName lastName username avatar');
+    const members = await User.find({ _id: { $in: campus.members.map(m => m.userId) } }, 'email firstName lastName username avatar bio country createdAt');
     return successResponse(res, 200, 'Channel members listed successfully', members, 'members');
   } catch (err) {
     return errorResponse(res, 500, 'Failed to get channel members', err.message);
@@ -177,7 +177,7 @@ const getChannelMessages = async (req, res) => {
         pageNo,
         itemsPerPage,
         sort: { createdAt: -1 },
-        populate: { path: 'userId', select: 'email firstName lastName avatar username' }
+        populate: { path: 'userId', select: 'email firstName lastName avatar username bio country createdAt' }
       }
     );
     // Format messages
@@ -190,6 +190,8 @@ const getChannelMessages = async (req, res) => {
       lastName: msg.userId?.lastName,
       username: msg.userId?.username,
       avatar: msg.userId?.avatar,
+      bio: msg.userId?.bio || '',
+      country: msg.userId?.country || '',
       text: msg.text,
       mediaUrl: msg.mediaUrl,
       mediaType: msg.mediaType,
@@ -255,7 +257,7 @@ const editMessage = async (req, res) => {
         mediaType
       },
       { new: true }
-    ).populate('userId', 'email firstName lastName avatar username');
+    ).populate('userId', 'email firstName lastName avatar username bio country createdAt');
 
     // Emit real-time update for message edit
     await socketManager.handleMessageEdit(updatedMessage.toObject(), message.channelId, userId);

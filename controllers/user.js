@@ -5,10 +5,30 @@ const Otp = require("../models/otp-request");
 const jwt = require("jsonwebtoken");
 const sendEmail = require("../utils/sendEmail");
 const { successResponse, errorResponse } = require("../utils/apiResponse");
+const Video = require("../models/video");
+const Campus = require("../models/campus");
+const Course = require("../models/course");
+const Book = require("../models/book");
+const mongoose = require("mongoose");
+const socketManager = require("../utils/socketManager");
+
+// Helper function to format user data response consistently
+const formatUserResponse = (user) => ({
+  _id: user._id,
+  firstName: user.firstName,
+  lastName: user.lastName,
+  username: user.username,
+  email: user.email,
+  phone: user.phone,
+  avatar: user.avatar,
+  bio: user.bio || '',
+  country: user.country || '',
+  createdAt: user.createdAt
+});
 
 const signUp = async (req, res) => {
   try {
-    const { email, firstName, lastName, phone } = req.body;
+    const { email, firstName, lastName, phone, bio, country } = req.body;
     const requiredFields = { email, firstName, lastName, phone };
 
     for (const [field, value] of Object.entries(requiredFields)) {
@@ -24,7 +44,14 @@ const signUp = async (req, res) => {
       );
     }
 
-    const user = await User.create({ email, firstName, lastName, phone });
+    const user = await User.create({ 
+      email, 
+      firstName, 
+      lastName, 
+      phone,
+      bio: bio || '',
+      country: country || ''
+    });
 
     // Auto-send OTP after signup
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -140,12 +167,7 @@ const verifyOtp = async (req, res) => {
       status: true,
       message: "OTP verification successful",
       token,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      username: user.username,
-      email: user.email,
-      phone: user.phone,
-      avatar: user.avatar,
+      user: formatUserResponse(user)
     });
   } catch (err) {
     return errorResponse(
@@ -244,12 +266,7 @@ const modifyAvatar = async (req, res) => {
     user.avatar = avatarUrl;
     await user.save();
     return successResponse(res, 200, "Avatar has been successfully updated", {
-      firstName: user.firstName,
-      lastName: user.lastName,
-      username: user.username,
-      email: user.email,
-      phone: user.phone,
-      avatar: user.avatar,
+      user: formatUserResponse(user)
     });
   } catch (err) {
     return errorResponse(res, 500, "Failed to update avatar", err.message);
@@ -278,6 +295,208 @@ const modifyUsername = async (req, res) => {
   }
 };
 
+// Add new endpoints for bio and country
+const modifyBio = async (req, res) => {
+  try {
+    const { bio } = req.body;
+    if (bio === undefined) return errorResponse(res, 400, "Please provide a bio");
+
+    const user = await User.findById(req.userId);
+    if (!user) return errorResponse(res, 404, "User account not found");
+
+    user.bio = bio;
+    await user.save();
+    return successResponse(res, 200, "Bio has been successfully updated", {
+      user: formatUserResponse(user)
+    });
+  } catch (err) {
+    return errorResponse(res, 500, "Failed to update bio", err.message);
+  }
+};
+
+const modifyCountry = async (req, res) => {
+  try {
+    const { country } = req.body;
+    if (!country) return errorResponse(res, 400, "Please provide a country");
+
+    const user = await User.findById(req.userId);
+    if (!user) return errorResponse(res, 404, "User account not found");
+
+    user.country = country;
+    await user.save();
+    return successResponse(res, 200, "Country has been successfully updated", {
+      user: formatUserResponse(user)
+    });
+  } catch (err) {
+    return errorResponse(res, 500, "Failed to update country", err.message);
+  }
+};
+
+const getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return errorResponse(res, 404, "User account not found");
+
+    // Get recent video/film watching data
+    let recentVideo = null;
+    if (socketManager.videoProgress[req.userId]) {
+      const videoProgressEntries = Object.entries(socketManager.videoProgress[req.userId]);
+      if (videoProgressEntries.length > 0) {
+        // Sort by last updated time (most recent first)
+        const sortedProgress = videoProgressEntries.sort((a, b) => 
+          (b[1].lastUpdated || 0) - (a[1].lastUpdated || 0)
+        );
+        
+        const [mostRecentVideoId, progress] = sortedProgress[0];
+        const video = await Video.findById(mostRecentVideoId);
+        if (video) {
+          recentVideo = {
+            _id: video._id,
+            title: video.title,
+            description: video.description,
+            type: video.type,
+            videoUrl: video.videoUrl,
+            posterUrl: video.posterUrl,
+            resolutions: video.resolutions || [],
+            createdAt: video.createdAt,
+            watchProgress: progress.percentage,
+            watchSeconds: progress.seconds,
+            totalDuration: progress.totalDuration,
+            contentType: video.type === 'film' ? 'film' : 'episode'
+          };
+        }
+      }
+    }
+
+    // Get recent course learning data
+    let recentCourse = null;
+    const userCampuses = await Campus.find({ 'members.userId': req.userId });
+    if (userCampuses.length > 0) {
+      const campusIds = userCampuses.map(campus => campus._id);
+      
+      // Get courses with progress
+      const coursesWithProgress = await Course.aggregate([
+        { $match: { campusId: { $in: campusIds } } },
+        {
+          $lookup: {
+            from: 'lessons',
+            localField: '_id',
+            foreignField: 'courseId',
+            as: 'lessons'
+          }
+        },
+        {
+          $addFields: {
+            totalVideos: {
+              $size: {
+                $filter: {
+                  input: '$lessons',
+                  as: 'lesson',
+                  cond: {
+                    $and: [
+                      { $ne: ['$$lesson.videoUrl', null] },
+                      { $ne: ['$$lesson.videoUrl', ''] }
+                    ]
+                  }
+                }
+              }
+            },
+            videosWithProgress: {
+              $size: {
+                $filter: {
+                  input: '$lessons',
+                  as: 'lesson',
+                  cond: {
+                    $and: [
+                      { $ne: ['$$lesson.videoUrl', null] },
+                      { $ne: ['$$lesson.videoUrl', ''] }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]);
+
+      // Process courses to find the most recent one with progress
+      let mostRecentCourse = null;
+      let latestProgressTime = 0;
+
+      for (const course of coursesWithProgress) {
+        let courseProgress = 0;
+        let courseLatestTime = 0;
+
+        course.lessons.forEach(lesson => {
+          if (lesson.videoUrl && lesson.videoUrl.trim() !== '') {
+            const progress = socketManager.videoProgress[req.userId] && 
+                            socketManager.videoProgress[req.userId][lesson._id.toString()];
+            if (progress && progress.percentage > 0) {
+              courseProgress++;
+              courseLatestTime = Math.max(courseLatestTime, progress.lastUpdated || 0);
+            }
+          }
+        });
+
+        if (courseProgress > 0 && courseLatestTime > latestProgressTime) {
+          latestProgressTime = courseLatestTime;
+          const campus = userCampuses.find(c => c._id.toString() === course.campusId.toString());
+          
+          mostRecentCourse = {
+            _id: course._id,
+            campusId: course.campusId,
+            campusTitle: campus ? campus.title : '',
+            campusSlug: campus ? campus.slug : '',
+            campusImageUrl: campus ? campus.imageUrl : '',
+            title: course.title,
+            imageUrl: course.imageUrl,
+            totalVideos: course.totalVideos,
+            videosWithProgress: courseProgress,
+            courseProgress: course.totalVideos > 0 ? Math.round((courseProgress / course.totalVideos) * 100) : 0,
+            createdAt: course.createdAt
+          };
+        }
+      }
+
+      recentCourse = mostRecentCourse;
+    }
+
+    // Get recent book reading data
+    let recentBook = null;
+    const continueReadingBooks = await Book.find(
+      { 
+        isOpened: { 
+          $exists: true, 
+          $ne: [], 
+          $in: [new mongoose.Types.ObjectId(req.userId)]
+        }
+      },
+      { isOpened: 0 }
+    ).sort({ updatedAt: -1 }).limit(1).lean();
+
+    if (continueReadingBooks.length > 0) {
+      const book = continueReadingBooks[0];
+      recentBook = {
+        _id: book._id,
+        title: book.title,
+        author: book.author,
+        image: book.image,
+        content: book.content,
+        createdAt: book.createdAt
+      };
+    }
+
+    return successResponse(res, 200, "User profile retrieved successfully", {
+      user: formatUserResponse(user),
+      recentVideo,
+      recentCourse,
+      recentBook
+    });
+  } catch (err) {
+    return errorResponse(res, 500, "Failed to retrieve user profile", err.message);
+  }
+};
+
 module.exports = {
   signUp,
   sendOtp,
@@ -287,4 +506,7 @@ module.exports = {
   setUsernameAndAvatar,
   modifyAvatar,
   modifyUsername,
+  modifyBio,
+  modifyCountry,
+  getUserProfile,
 };
