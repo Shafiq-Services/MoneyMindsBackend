@@ -36,14 +36,56 @@ const upload = multer({
   }
 });
 
+// Helper function to get the folder path based on image type
+const getImageFolder = (type) => {
+  const folderMap = {
+    'campus': 'images/campuses',
+    'course': 'images/courses', 
+    'video': 'images/videos',
+    'series': 'images/series',
+    'book': 'images/books',
+    'user': 'images/users',
+    'avatar': 'images/avatars',
+    'banner': 'images/banners',
+    'marketplace': 'images/marketplace',
+    'feed': 'images/feeds',
+    'chat': 'images/chat'
+  };
+  
+  return folderMap[type] || 'images'; // Default to 'images' if type not found
+};
+
+// Helper function to validate image type
+const validateImageType = (type) => {
+  const validTypes = [
+    'campus', 'course', 'video', 'series', 'book', 
+    'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat'
+  ];
+  
+  return validTypes.includes(type);
+};
+
 const uploadImage = async (req, res) => {
   try {
     console.log('🖼️ Starting image upload process...');
+    
+    // Get and validate the type query parameter
+    const { type } = req.query;
+    
+    if (!type) {
+      return errorResponse(res, 400, 'Image type is required. Use query parameter: ?type=campus|course|video|series|book|user|avatar|banner|marketplace|feed|chat');
+    }
+    
+    if (!validateImageType(type)) {
+      return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat');
+    }
+    
     console.log('📁 File info:', {
       originalname: req.file?.originalname,
       mimetype: req.file?.mimetype,
       size: req.file?.size,
-      userId: req.userId
+      userId: req.userId,
+      imageType: type
     });
 
     if (!req.file) {
@@ -63,7 +105,8 @@ const uploadImage = async (req, res) => {
 
     const imageId = uuidv4();
     const fileExtension = path.extname(req.file.originalname);
-    const fileName = `images/${imageId}${fileExtension}`;
+    const folderPath = getImageFolder(type);
+    const fileName = `${folderPath}/${imageId}${fileExtension}`;
 
     try {
       const uploadResult = await uploadFile(fileName, req.file.buffer);
@@ -72,9 +115,7 @@ const uploadImage = async (req, res) => {
       const responseData = {
         _id: imageId,
         imageUrl: uploadResult.fileUrl,
-        fileName: req.file.originalname,
-        fileSize: req.file.size,
-        mimeType: req.file.mimetype,
+        imageType: type,
         createdAt: new Date()
       };
 

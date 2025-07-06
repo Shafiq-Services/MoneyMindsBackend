@@ -6,10 +6,50 @@ const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
 const socketManager = require('../utils/socketManager');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 
+// Helper function to get the folder path based on image type
+const getImageFolder = (type) => {
+  const folderMap = {
+    'campus': 'images/campuses',
+    'course': 'images/courses', 
+    'video': 'images/videos',
+    'series': 'images/series',
+    'book': 'images/books',
+    'user': 'images/users',
+    'avatar': 'images/avatars',
+    'banner': 'images/banners',
+    'marketplace': 'images/marketplace',
+    'feed': 'images/feeds',
+    'chat': 'images/chat'
+  };
+  
+  return folderMap[type] || 'images'; // Default to 'images' if type not found
+};
+
+// Helper function to validate image type
+const validateImageType = (type) => {
+  const validTypes = [
+    'campus', 'course', 'video', 'series', 'book', 
+    'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat'
+  ];
+  
+  return validTypes.includes(type);
+};
+
 const uploadImageWithProgress = (req, res) => {
   const imageId = uuidv4();
 
   try {
+    // Get and validate the type query parameter
+    const { type } = req.query;
+    
+    if (!type) {
+      return errorResponse(res, 400, 'Image type is required. Use query parameter: ?type=campus|course|video|series|book|user|avatar|banner|marketplace|feed|chat');
+    }
+    
+    if (!validateImageType(type)) {
+      return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat');
+    }
+
     const bb = busboy({ 
       headers: req.headers,
       limits: {
@@ -34,7 +74,8 @@ const uploadImageWithProgress = (req, res) => {
       }
 
       fileExtension = path.extname(filename);
-      fileName = `images/${imageId}${fileExtension}`;
+      const folderPath = getImageFolder(type);
+      fileName = `${folderPath}/${imageId}${fileExtension}`;
 
       // Track real upload progress
       file.on('data', (chunk) => {
@@ -48,10 +89,12 @@ const uploadImageWithProgress = (req, res) => {
             socketManager.io.emit('uploadProgress', {
               id: imageId,
               type: 'image',
+              imageType: type,
+              folderPath: folderPath,
               status: 'uploading',
               uploadProgress: uploadProgress,
               overallProgress: uploadProgress,
-              message: `Uploading... ${uploadProgress}%`
+              message: `Uploading ${type} image... ${uploadProgress}%`
             });
           }
         }
@@ -63,6 +106,8 @@ const uploadImageWithProgress = (req, res) => {
           socketManager.io.emit('uploadProgress', {
             id: imageId,
             type: 'image',
+            imageType: type,
+            folderPath: folderPath,
             status: 'uploading',
             uploadProgress: 100,
             overallProgress: 100,
@@ -77,7 +122,7 @@ const uploadImageWithProgress = (req, res) => {
           const result = {
             imageUrl: uploadResult.fileUrl,
             fileId: uploadResult.fileId,
-            fileName: uploadResult.fileName,
+            imageType: type
           };
           
           // Emit completion
@@ -85,10 +130,12 @@ const uploadImageWithProgress = (req, res) => {
             socketManager.io.emit('uploadProgress', {
               id: imageId,
               type: 'image',
+              imageType: type,
+              folderPath: folderPath,
               status: 'completed',
               uploadProgress: 100,
               overallProgress: 100,
-              message: 'Upload completed successfully',
+              message: `${type.charAt(0).toUpperCase() + type.slice(1)} image uploaded successfully`,
               result: result
             });
           }
@@ -99,6 +146,8 @@ const uploadImageWithProgress = (req, res) => {
             socketManager.io.emit('uploadProgress', {
               id: imageId,
               type: 'image',
+              imageType: type,
+              folderPath: folderPath,
               status: 'failed',
               message: `Failed: ${error.message}`,
               error: error.message
@@ -119,6 +168,7 @@ const uploadImageWithProgress = (req, res) => {
         socketManager.io.emit('uploadProgress', {
           id: imageId,
           type: 'image',
+          imageType: type,
           status: 'failed',
           message: `Failed: ${err.message}`,
           error: err.message
@@ -130,9 +180,10 @@ const uploadImageWithProgress = (req, res) => {
     bb.on('finish', () => {
       res.status(202).json({
         status: true,
-        message: 'Image upload initiated',
+        message: `${type.charAt(0).toUpperCase() + type.slice(1)} image upload initiated`,
         progressId: imageId,
-        imageId: imageId
+        imageId: imageId,
+        imageType: type
       });
     });
 
