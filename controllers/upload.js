@@ -2,16 +2,32 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const { uploadFile } = require('../utils/backblazeB2');
+const { uploadFileWithRetry } = require('../utils/chunkedUpload');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
+const socketManager = require('../utils/socketManager');
+const fs = require('fs');
 
-// Configure multer for memory storage
-const storage = multer.memoryStorage();
+// Configure multer for disk storage to handle large files efficiently
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../temp/uploads');
+    // Ensure directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
+});
 
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 500 * 1024 * 1024, // 500MB limit for large files
+    fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit for large files
   },
   fileFilter: (req, file, cb) => {
     if (req.path.includes('/image')) {
@@ -69,6 +85,19 @@ const validateImageType = (type) => {
   return validTypes.includes(type);
 };
 
+// Helper function to clean up temporary files
+const cleanupTempFile = (filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        console.error('Failed to cleanup temp file:', err);
+      } else {
+        console.log('✅ Temp file cleaned up:', filePath);
+      }
+    });
+  }
+};
+
 const uploadImage = async (req, res) => {
   try {
     console.log('🖼️ Starting image upload process...');
@@ -98,12 +127,16 @@ const uploadImage = async (req, res) => {
 
     // Validate file size (10MB limit for images)
     if (req.file.size > 10 * 1024 * 1024) {
+      // Clean up temp file
+      cleanupTempFile(req.file.path);
       return errorResponse(res, 400, 'File size exceeds 10MB limit');
     }
 
     // Validate file type
     const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedImageTypes.includes(req.file.mimetype)) {
+      // Clean up temp file
+      cleanupTempFile(req.file.path);
       return errorResponse(res, 400, 'Invalid image file type');
     }
 
@@ -113,7 +146,26 @@ const uploadImage = async (req, res) => {
     const fileName = `${folderPath}/${imageId}${fileExtension}`;
 
     try {
-      const uploadResult = await uploadFile(fileName, req.file.buffer);
+      // Send upload start event
+      socketManager.broadcastUploadProgress(req.userId, {
+        uploadType: 'image',
+        uploadId: imageId,
+        imageType: type,
+        stage: 'uploading',
+        progress: 0,
+        message: 'Starting image upload...'
+      });
+      
+      const uploadResult = await uploadFile(fileName, fs.readFileSync(req.file.path));
+      
+      // Send upload complete event
+      socketManager.broadcastUploadComplete(req.userId, {
+        uploadType: 'image',
+        uploadId: imageId,
+        imageType: type,
+        imageUrl: uploadResult.fileUrl,
+        createdAt: new Date()
+      });
       
       // Structure response according to node-api-structure
       const responseData = {
@@ -123,9 +175,23 @@ const uploadImage = async (req, res) => {
         createdAt: new Date()
       };
 
+      // Clean up temp file
+      cleanupTempFile(req.file.path);
+
       return successResponse(res, 201, 'Image uploaded successfully', responseData, 'image');
 
     } catch (error) {
+      // Send error event
+      socketManager.broadcastUploadError(req.userId, {
+        uploadType: 'image',
+        uploadId: imageId,
+        imageType: type,
+        error: error.message,
+        stage: 'upload'
+      });
+      
+      // Clean up temp file on error
+      cleanupTempFile(req.file.path);
       throw error;
     }
 
@@ -151,11 +217,14 @@ const validateVideoType = (videoType) => {
 };
 
 const uploadVideo = async (req, res) => {
+  let videoId = null;
+  let videoType = null;
+  
   try {
     console.log('🎬 Starting video upload to storage...');
     
     // Check for video type in query parameter
-    const videoType = req.query.type;
+    videoType = req.query.type;
     if (!videoType) {
       return errorResponse(res, 400, 'Video type is required. Use query parameter: ?type=film|episode|lesson');
     }
@@ -169,8 +238,8 @@ const uploadVideo = async (req, res) => {
       return errorResponse(res, 400, 'No video file provided');
     }
 
-    if (req.file.size > 2 * 1024 * 1024 * 1024) { // 2GB limit
-      return errorResponse(res, 400, 'Video file too large. Maximum size is 2GB');
+    if (req.file.size > 10 * 1024 * 1024 * 1024) { // 10GB limit
+      return errorResponse(res, 400, 'Video file too large. Maximum size is 10GB');
     }
 
     // Validate video file type
@@ -179,23 +248,90 @@ const uploadVideo = async (req, res) => {
       return errorResponse(res, 400, 'Invalid video file type');
     }
 
-    const videoId = uuidv4();
+    videoId = uuidv4();
     const fileExtension = path.extname(req.file.originalname).toLowerCase();
 
     // Store original video file with organized folder structure
     const videoFolder = getVideoFolder(videoType);
     const originalFileName = `${videoFolder}/${videoId}/original${fileExtension}`;
 
-    // Upload original video file
-    console.log('📤 Starting original video upload...');
-    const originalUploadResult = await uploadFile(originalFileName, req.file.buffer);
+    // Upload original video file using chunked upload with progress tracking
+    console.log('📤 Starting original video upload with chunks...');
+    
+    // Send upload start event
+    socketManager.broadcastUploadProgress(req.userId, {
+      uploadType: 'video',
+      uploadId: videoId,
+      videoType,
+      stage: 'uploading',
+      progress: 0,
+      message: 'Starting video upload...'
+    });
+    
+    const originalUploadResult = await uploadFileWithRetry(
+      req.file.path, 
+      originalFileName,
+      3, // maxRetries
+      (progressData) => {
+        // Progress callback for chunked upload
+        socketManager.broadcastUploadProgress(req.userId, {
+          uploadType: 'video',
+          uploadId: videoId,
+          videoType,
+          stage: 'uploading',
+          progress: progressData.progress,
+          message: progressData.message,
+          completedChunks: progressData.completedChunks,
+          totalChunks: progressData.totalChunks,
+          currentChunk: progressData.currentChunk,
+          fileSize: progressData.fileSize,
+          uploadedBytes: progressData.uploadedBytes,
+          uploadSpeed: progressData.uploadSpeed,
+          timeRemaining: progressData.timeRemaining
+        });
+      }
+    );
+    
     console.log('✅ Original video upload complete');
+    
+    // Send upload complete event
+    socketManager.broadcastUploadProgress(req.userId, {
+      uploadType: 'video',
+      uploadId: videoId,
+      videoType,
+      stage: 'uploading',
+      progress: 100,
+      message: 'Video upload complete, starting transcoding...'
+    });
 
     // Transcode video to HLS with organized folder structure
     try {
       console.log('🔄 Starting video transcoding...');
-      const transcodeResult = await transcodeToHLS(req.file.buffer, videoId, videoType);
+      
+      // Send transcoding start event
+      socketManager.broadcastUploadProgress(req.userId, {
+        uploadType: 'video',
+        uploadId: videoId,
+        videoType,
+        stage: 'transcoding',
+        progress: 0,
+        message: 'Starting video transcoding...'
+      });
+      
+      // Read file from disk for transcoding
+      const videoBuffer = fs.readFileSync(req.file.path);
+      const transcodeResult = await transcodeToHLS(videoBuffer, videoId, videoType);
       console.log('✅ Video transcoding complete');
+      
+      // Send transcoding complete event
+      socketManager.broadcastUploadProgress(req.userId, {
+        uploadType: 'video',
+        uploadId: videoId,
+        videoType,
+        stage: 'transcoding',
+        progress: 100,
+        message: 'Video transcoding complete!'
+      });
 
       // Response data
       const responseData = {
@@ -206,15 +342,54 @@ const uploadVideo = async (req, res) => {
         createdAt: new Date()
       };
 
+      // Clean up temp file after successful upload
+      cleanupTempFile(req.file.path);
+      
+      // Send final completion event
+      socketManager.broadcastUploadComplete(req.userId, {
+        uploadType: 'video',
+        uploadId: videoId,
+        videoType,
+        videoUrl: transcodeResult.videoUrl,
+        originalVideoUrl: originalUploadResult.fileUrl,
+        resolutions: transcodeResult.resolutions,
+        duration: transcodeResult.duration,
+        createdAt: new Date()
+      });
+      
       return successResponse(res, 201, 'Video uploaded and processed successfully', responseData, 'video');
 
     } catch (transcodeError) {
       console.error('❌ Video transcoding failed:', transcodeError);
+      
+      // Send error event
+      socketManager.broadcastUploadError(req.userId, {
+        uploadType: 'video',
+        uploadId: videoId,
+        videoType,
+        error: transcodeError.message,
+        stage: 'transcoding'
+      });
+      
+      // Clean up temp file
+      cleanupTempFile(req.file.path);
       return errorResponse(res, 500, 'Failed to process video', transcodeError.message);
     }
 
   } catch (err) {
     console.error('❌ Video upload failed:', err);
+    
+    // Send error event
+    socketManager.broadcastUploadError(req.userId, {
+      uploadType: 'video',
+      uploadId: videoId || 'unknown',
+      videoType: videoType || 'unknown',
+      error: err.message,
+      stage: 'upload'
+    });
+    
+    // Clean up temp file
+    cleanupTempFile(req.file.path);
     return errorResponse(res, 500, 'Failed to upload video', err.message);
   }
 };
@@ -240,9 +415,11 @@ const uploadGeneralFile = async (req, res) => {
       return errorResponse(res, 400, 'No file provided');
     }
 
-    // Validate file size (50MB limit for files)
-    if (req.file.size > 50 * 1024 * 1024) {
-      return errorResponse(res, 400, 'File size exceeds 50MB limit');
+    // Validate file size (1GB limit for files)
+    if (req.file.size > 1 * 1024 * 1024 * 1024) {
+      // Clean up temp file
+      cleanupTempFile(req.file.path);
+      return errorResponse(res, 400, 'File size exceeds 1GB limit');
     }
 
     // Accept any file type - no restrictions
@@ -254,7 +431,54 @@ const uploadGeneralFile = async (req, res) => {
     const fileName = `${folderPath}/${fileId}${fileExtension}`;
 
     try {
-      const uploadResult = await uploadFile(fileName, req.file.buffer);
+      // Send upload start event
+      socketManager.broadcastUploadProgress(req.userId, {
+        uploadType: 'file',
+        uploadId: fileId,
+        fileType: req.file.mimetype,
+        fileName: req.file.originalname,
+        stage: 'uploading',
+        progress: 0,
+        message: 'Starting file upload...'
+      });
+      
+      // Use chunked upload with progress tracking for large files
+      const uploadResult = await uploadFileWithRetry(
+        req.file.path,
+        fileName,
+        3, // maxRetries
+        (progressData) => {
+          // Progress callback for chunked upload
+          socketManager.broadcastUploadProgress(req.userId, {
+            uploadType: 'file',
+            uploadId: fileId,
+            fileType: req.file.mimetype,
+            fileName: req.file.originalname,
+            stage: 'uploading',
+            progress: progressData.progress,
+            message: progressData.message,
+            completedChunks: progressData.completedChunks,
+            totalChunks: progressData.totalChunks,
+            currentChunk: progressData.currentChunk,
+            fileSize: progressData.fileSize,
+            uploadedBytes: progressData.uploadedBytes,
+            uploadSpeed: progressData.uploadSpeed,
+            timeRemaining: progressData.timeRemaining
+          });
+        }
+      );
+      
+      // Send upload complete event
+      socketManager.broadcastUploadComplete(req.userId, {
+        uploadType: 'file',
+        uploadId: fileId,
+        fileUrl: uploadResult.fileUrl,
+        fileName: req.file.originalname,
+        fileType: req.file.mimetype,
+        fileSize: req.file.size,
+        folderPath: folderPath,
+        createdAt: new Date()
+      });
       
       // Structure response according to node-api-structure
       const responseData = {
@@ -267,9 +491,23 @@ const uploadGeneralFile = async (req, res) => {
         createdAt: new Date()
       };
 
+      // Clean up temp file
+      cleanupTempFile(req.file.path);
+
       return successResponse(res, 201, 'File uploaded successfully', responseData, 'file');
 
     } catch (error) {
+      // Send error event
+      socketManager.broadcastUploadError(req.userId, {
+        uploadType: 'file',
+        uploadId: fileId,
+        fileName: req.file.originalname,
+        error: error.message,
+        stage: 'upload'
+      });
+      
+      // Clean up temp file on error
+      cleanupTempFile(req.file.path);
       throw error;
     }
 

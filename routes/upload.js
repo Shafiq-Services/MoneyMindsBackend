@@ -14,7 +14,7 @@ const multer = require('multer');
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return errorResponse(res, 400, 'File too large. Maximum size is 500MB');
+      return errorResponse(res, 400, 'File too large. Maximum size is 10GB');
     }
     if (err.code === 'LIMIT_UNEXPECTED_FILE') {
       return errorResponse(res, 400, 'Unexpected file field');

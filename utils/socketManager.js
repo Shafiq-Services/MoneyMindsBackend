@@ -672,6 +672,26 @@ class SocketManager {
     
     this.broadcastUserNotification('subscription-expiry-warning', notificationData, user._id);
   }
+
+  // UPLOAD PROGRESS TRACKING METHODS
+
+  // Send upload progress to specific user
+  broadcastUploadProgress(userId, data) {
+    console.log(`📤 [Socket Manager] Broadcasting upload progress to user ${userId}:`, data);
+    this.io.to(`user:${userId}`).emit('upload-progress', data);
+  }
+
+  // Send upload completion to specific user
+  broadcastUploadComplete(userId, data) {
+    console.log(`✅ [Socket Manager] Broadcasting upload complete to user ${userId}:`, data);
+    this.io.to(`user:${userId}`).emit('upload-complete', data);
+  }
+
+  // Send upload error to specific user
+  broadcastUploadError(userId, data) {
+    console.log(`❌ [Socket Manager] Broadcasting upload error to user ${userId}:`, data);
+    this.io.to(`user:${userId}`).emit('upload-error', data);
+  }
 }
 
 // Singleton instance

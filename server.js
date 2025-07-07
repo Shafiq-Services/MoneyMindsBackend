@@ -45,8 +45,8 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '500mb' }));
-app.use(express.urlencoded({ limit: '500mb', extended: true }));
+app.use(express.json({ limit: '10gb' }));
+app.use(express.urlencoded({ limit: '10gb', extended: true }));
 app.use(morgan("dev"));
 
 // Connect to MongoDB
@@ -58,7 +58,6 @@ app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/video", require('./routes/video'));
 app.use("/api/chat", require('./routes/chat'));
 app.use("/api/upload", require('./routes/upload'));
-app.use("/api/upload-progress", require('./routes/uploadProgress'));
 app.use("/api/contact", require('./routes/contact'));
 app.use("/api/series", require('./routes/series'));
 app.use("/api/campus", require('./routes/campus'));
