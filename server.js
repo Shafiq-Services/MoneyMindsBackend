@@ -16,6 +16,10 @@ const subscriptionRoutes = require('./routes/subscription');
 const app = express();
 const server = http.createServer(app);
 
+// Configure server for large file uploads
+server.timeout = 7200000; // 2 hours
+server.maxConnections = 1000;
+
 // Initialize Socket.IO with our socket manager
 socketManager.initialize(server);
 
@@ -45,6 +49,17 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
+
+// Increase timeout for large file uploads
+app.use((req, res, next) => {
+  // Set timeout to 2 hours for upload endpoints
+  if (req.path.includes('/upload')) {
+    req.setTimeout(7200000); // 2 hours
+    res.setTimeout(7200000); // 2 hours
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10gb' }));
 app.use(express.urlencoded({ limit: '10gb', extended: true }));
 app.use(morgan("dev"));
