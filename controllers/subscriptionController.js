@@ -451,4 +451,144 @@ exports.checkSubscriptionExpiryWarnings = async () => {
   } catch (error) {
     console.error('❌ [Subscription Expiry] Error in checkSubscriptionExpiryWarnings:', error.message);
   }
+};
+
+exports.getCurrentSubscription = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const subscription = await Subscription.findOne({
+      userId: userId,
+      status: { $in: ['active', 'past_due', 'incomplete'] }
+    }).sort({ createdAt: -1 });
+
+    if (!subscription) {
+      return res.status(200).json({
+        status: true,
+        message: 'No active subscription found',
+        plan: null
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: 'Current subscription retrieved',
+      plan: {
+        _id: subscription._id,
+        plan: subscription.plan,
+        status: subscription.status,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        createdAt: subscription.createdAt
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ status: false, message: 'Failed to get current subscription', error: err.message });
+  }
+};
+
+// Payment Methods
+exports.listPaymentMethods = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user.stripeCustomerId) return successResponse(res, 200, 'No cards found', [], 'paymentMethods');
+    const paymentMethods = await stripe.paymentMethods.list({
+      customer: user.stripeCustomerId,
+      type: 'card'
+    });
+    const cards = paymentMethods.data.map(pm => ({
+      _id: pm.id,
+      brand: pm.card.brand,
+      last4: pm.card.last4,
+      exp_month: pm.card.exp_month,
+      exp_year: pm.card.exp_year,
+      is_default: user.stripeCustomerId && user.stripeCustomerId === pm.customer && pm.id === (user.invoice_settings?.default_payment_method || null)
+    }));
+    return successResponse(res, 200, 'Payment methods retrieved', cards, 'paymentMethods');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to list payment methods', err.message);
+  }
+};
+
+exports.addPaymentMethod = async (req, res) => {
+  try {
+    const { paymentMethodId } = req.body;
+    if (!paymentMethodId) return errorResponse(res, 400, 'paymentMethodId is required');
+    const user = await User.findById(req.userId);
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: user.stripeCustomerId });
+    await stripe.customers.update(user.stripeCustomerId, {
+      invoice_settings: { default_payment_method: paymentMethodId }
+    });
+    return successResponse(res, 201, 'Payment method added successfully');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to add payment method', err.message);
+  }
+};
+
+exports.editPaymentMethod = async (req, res) => {
+  try {
+    const { paymentMethodId } = req.body;
+    if (!paymentMethodId) return errorResponse(res, 400, 'paymentMethodId is required');
+    const user = await User.findById(req.userId);
+    await stripe.customers.update(user.stripeCustomerId, {
+      invoice_settings: { default_payment_method: paymentMethodId }
+    });
+    return successResponse(res, 200, 'Default payment method updated');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to update payment method', err.message);
+  }
+};
+
+exports.deletePaymentMethod = async (req, res) => {
+  try {
+    const { paymentMethodId } = req.query;
+    if (!paymentMethodId) return errorResponse(res, 400, 'paymentMethodId is required');
+    await stripe.paymentMethods.detach(paymentMethodId);
+    return successResponse(res, 200, 'Payment method deleted');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to delete payment method', err.message);
+  }
+};
+
+// Billing Info
+exports.getBillingInfo = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    const customer = await stripe.customers.retrieve(user.stripeCustomerId);
+    const billingInfo = {
+      _id: customer.id,
+      name: customer.name,
+      address: customer.address,
+      city: customer.address?.city,
+      state: customer.address?.state,
+      zip: customer.address?.postal_code,
+      country: customer.address?.country,
+      phone: customer.phone,
+      createdAt: customer.created
+    };
+    return successResponse(res, 200, 'Billing info retrieved', billingInfo, 'billingInfo');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to get billing info', err.message);
+  }
+};
+
+exports.editBillingInfo = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    const update = req.body;
+    const customer = await stripe.customers.update(user.stripeCustomerId, update);
+    return successResponse(res, 200, 'Billing info updated', customer, 'billingInfo');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to update billing info', err.message);
+  }
+};
+
+exports.deleteBillingInfo = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    const customer = await stripe.customers.update(user.stripeCustomerId, {
+      address: null, name: null, phone: null
+    });
+    return successResponse(res, 200, 'Billing info deleted', customer, 'billingInfo');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to delete billing info', err.message);
+  }
 }; 
