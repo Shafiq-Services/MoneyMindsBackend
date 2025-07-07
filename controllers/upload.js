@@ -30,6 +30,9 @@ const upload = multer({
       } else {
         cb(new Error('Only video files (MP4, AVI, MOV, WMV, FLV, WebM, MKV) are allowed'), false);
       }
+    } else if (req.path.includes('/file')) {
+      // Allow any file type for /file endpoint
+      cb(null, true);
     } else {
       cb(new Error('Invalid upload endpoint'), false);
     }
@@ -49,7 +52,8 @@ const getImageFolder = (type) => {
     'banner': 'images/banners',
     'marketplace': 'images/marketplace',
     'feed': 'images/feeds',
-    'chat': 'images/chat'
+    'chat': 'images/chat',
+    'contact': 'files/contact'
   };
   
   return folderMap[type] || 'images'; // Default to 'images' if type not found
@@ -59,7 +63,7 @@ const getImageFolder = (type) => {
 const validateImageType = (type) => {
   const validTypes = [
     'campus', 'course', 'video', 'series', 'book', 
-    'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat'
+    'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat', 'contact'
   ];
   
   return validTypes.includes(type);
@@ -215,8 +219,68 @@ const uploadVideo = async (req, res) => {
   }
 };
 
+const uploadGeneralFile = async (req, res) => {
+  try {
+    console.log('📎 Starting file upload process...');
+    
+    // Get and validate the type query parameter
+    const { type } = req.query;
+    
+    if (!type) {
+      return errorResponse(res, 400, 'File type is required. Use query parameter: ?type=contact|document|other');
+    }
+    
+    console.log('📁 File info:', {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size
+    });
+
+    if (!req.file) {
+      return errorResponse(res, 400, 'No file provided');
+    }
+
+    // Validate file size (50MB limit for files)
+    if (req.file.size > 50 * 1024 * 1024) {
+      return errorResponse(res, 400, 'File size exceeds 50MB limit');
+    }
+
+    // Accept any file type - no restrictions
+    console.log('📄 File type:', req.file.mimetype);
+
+    const fileId = uuidv4();
+    const fileExtension = path.extname(req.file.originalname);
+    const folderPath = `files/${type}`;
+    const fileName = `${folderPath}/${fileId}${fileExtension}`;
+
+    try {
+      const uploadResult = await uploadFile(fileName, req.file.buffer);
+      
+      // Structure response according to node-api-structure
+      const responseData = {
+        _id: fileId,
+        fileUrl: uploadResult.fileUrl,
+        fileName: req.file.originalname,
+        fileType: req.file.mimetype,
+        fileSize: req.file.size,
+        folderPath: folderPath,
+        createdAt: new Date()
+      };
+
+      return successResponse(res, 201, 'File uploaded successfully', responseData, 'file');
+
+    } catch (error) {
+      throw error;
+    }
+
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to upload file', err.message);
+  }
+};
+
 module.exports = {
   upload,
   uploadImage,
   uploadVideo,
+  uploadGeneralFile,
 }; 

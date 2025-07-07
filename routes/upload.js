@@ -4,13 +4,11 @@ const {
   upload,
   uploadImage,
   uploadVideo,
+  uploadGeneralFile,
 } = require('../controllers/upload');
 const authMiddleware = require('../middlewares/auth');
 const { errorResponse } = require('../utils/apiResponse');
 const multer = require('multer');
-
-// Apply authentication to all upload routes
-router.use(authMiddleware);
 
 // Error handling middleware for multer
 const handleMulterError = (err, req, res, next) => {
@@ -31,10 +29,13 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-// Image upload route
-router.post('/image', upload.single('image'), handleMulterError, uploadImage);
+// Public upload routes (no authentication required)
+router.post('/file', upload.single('file'), handleMulterError, uploadGeneralFile);
 
-// Video upload route
-router.post('/video', upload.single('video'), handleMulterError, uploadVideo);
+// Protected upload routes (authentication required)
+router.post('/image', authMiddleware, upload.single('image'), handleMulterError, uploadImage);
+router.post('/video', authMiddleware, upload.single('video'), handleMulterError, uploadVideo);
+
+
 
 module.exports = router; 

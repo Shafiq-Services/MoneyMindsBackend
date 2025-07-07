@@ -9,7 +9,6 @@ const morgan = require("morgan");
 const config = require("./config/config");
 const connectDB = require("./config/db");
 const socketManager = require("./utils/socketManager");
-const socketTester = require("./utils/socketTester");
 const { initializeSubscriptionScheduler } = require("./utils/subscriptionScheduler");
 const subscriptionController = require('./controllers/subscriptionController');
 const subscriptionRoutes = require('./routes/subscription');
@@ -19,11 +18,6 @@ const server = http.createServer(app);
 
 // Initialize Socket.IO with our socket manager
 socketManager.initialize(server);
-
-// Initialize socket tester after a short delay to ensure socket server is ready
-setTimeout(() => {
-  socketTester.initialize();
-}, 1000);
 
 // Initialize subscription expiry warning scheduler
 setTimeout(() => {
@@ -65,6 +59,7 @@ app.use("/api/video", require('./routes/video'));
 app.use("/api/chat", require('./routes/chat'));
 app.use("/api/upload", require('./routes/upload'));
 app.use("/api/upload-progress", require('./routes/uploadProgress'));
+app.use("/api/contact", require('./routes/contact'));
 app.use("/api/series", require('./routes/series'));
 app.use("/api/campus", require('./routes/campus'));
 app.use("/api/course", require('./routes/course'));
