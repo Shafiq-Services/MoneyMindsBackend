@@ -2,7 +2,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { uploadFile } = require('./backblazeB2');
+const { uploadFileSmart } = require('./b2OfficialMultithreaded');
 const { getB2S3Url } = require('./b2Url');
 
 // Use custom binaries only on Linux (e.g., Azure server)
@@ -138,10 +138,14 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
       const playlistPath = path.join(outputPath, playlistName);
       const playlistContent = fs.readFileSync(playlistPath);
       
+      // Create temp file for upload
+      const tempPlaylistPath = path.join(tempDir, `temp_playlist_${resolution.height}.m3u8`);
+      fs.writeFileSync(tempPlaylistPath, playlistContent);
+      
       uploadPromises.push(
-        uploadFile(
-          `${videoFolder}/${videoId}/${resolution.height}p/${playlistName}`,
-          playlistContent
+        uploadFileSmart(
+          tempPlaylistPath,
+          `${videoFolder}/${videoId}/${resolution.height}p/${playlistName}`
         )
       );
 
@@ -151,10 +155,14 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
         const segmentPath = path.join(outputPath, segmentFile);
         const segmentContent = fs.readFileSync(segmentPath);
         
+        // Create temp file for upload
+        const tempSegmentPath = path.join(tempDir, `temp_segment_${segmentFile}`);
+        fs.writeFileSync(tempSegmentPath, segmentContent);
+        
         uploadPromises.push(
-          uploadFile(
-            `${videoFolder}/${videoId}/${resolution.height}p/${segmentFile}`,
-            segmentContent
+          uploadFileSmart(
+            tempSegmentPath,
+            `${videoFolder}/${videoId}/${resolution.height}p/${segmentFile}`
           )
         );
       }
@@ -162,10 +170,13 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
 
     // Create and upload master playlist with organized folder structure
     const masterPlaylistContent = `#EXTM3U\n#EXT-X-VERSION:3\n${masterPlaylist.join('\n')}\n`;
+    const tempMasterPath = path.join(tempDir, 'temp_master.m3u8');
+    fs.writeFileSync(tempMasterPath, Buffer.from(masterPlaylistContent));
+    
     uploadPromises.push(
-      uploadFile(
-        `${videoFolder}/${videoId}/master.m3u8`,
-        Buffer.from(masterPlaylistContent)
+      uploadFileSmart(
+        tempMasterPath,
+        `${videoFolder}/${videoId}/master.m3u8`
       )
     );
 

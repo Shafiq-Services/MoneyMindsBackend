@@ -4,19 +4,11 @@ const {
   uploadImage,
   uploadVideo,
   uploadGeneralFile,
-  listUnfinishedLargeFiles,
-  cancelUnfinishedUpload,
-  cleanupOldUploads
+  upload
 } = require('../controllers/upload');
 const authMiddleware = require('../middlewares/auth');
 const { errorResponse } = require('../utils/apiResponse');
 const multer = require('multer');
-const { 
-  uploadImage: uploadImageMiddleware, 
-  uploadVideo: uploadVideoMiddleware, 
-  uploadFile: uploadFileMiddleware,
-  handleMulterError 
-} = require('../config/uploadConfig');
 
 // Enhanced error handling for large file uploads
 const enhancedErrorHandler = (err, req, res, next) => {
@@ -40,15 +32,10 @@ const enhancedErrorHandler = (err, req, res, next) => {
 };
 
 // Public upload routes (no authentication required)
-router.post('/file', uploadFileMiddleware.single('file'), enhancedErrorHandler, uploadGeneralFile);
+router.post('/file', upload.single('file'), enhancedErrorHandler, uploadGeneralFile);
 
 // Protected upload routes (authentication required)
-router.post('/image', authMiddleware, uploadImageMiddleware.single('image'), enhancedErrorHandler, uploadImage);
-router.post('/video', authMiddleware, uploadVideoMiddleware.single('video'), enhancedErrorHandler, uploadVideo);
-
-// Upload management endpoints for large file handling
-router.get('/unfinished', authMiddleware, listUnfinishedLargeFiles);
-router.delete('/unfinished/:fileId', authMiddleware, cancelUnfinishedUpload);
-router.post('/cleanup', authMiddleware, cleanupOldUploads);
+router.post('/image', authMiddleware, upload.single('image'), enhancedErrorHandler, uploadImage);
+router.post('/video', authMiddleware, upload.single('video'), enhancedErrorHandler, uploadVideo);
 
 module.exports = router; 

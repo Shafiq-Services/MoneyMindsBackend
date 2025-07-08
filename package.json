@@ -13,6 +13,7 @@
     "license": "MIT",
     "dependencies": {
         "@sendgrid/mail": "^8.1.5",
+        "aws-sdk": "^2.1692.0",
         "axios": "^1.6.8",
         "backblaze-b2": "^1.7.1",
         "bull": "^4.16.5",

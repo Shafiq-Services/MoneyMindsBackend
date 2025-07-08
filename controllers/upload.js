@@ -1,14 +1,11 @@
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
-const { uploadFile } = require('../utils/backblazeB2');
-const { uploadFileWithRetry, uploadFileOptimized, listUnfinishedUploads } = require('../utils/chunkedUpload');
-const { generateDirectUploadUrl, generateMultipartUploadUrls, completeMultipartUpload } = require('../utils/b2DirectUpload');
+const { uploadFileSmart } = require('../utils/b2OfficialMultithreaded');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const fs = require('fs');
-const axios = require('axios');
 
 // Configure multer for disk storage to handle large files efficiently
 const storage = multer.diskStorage({
@@ -57,34 +54,45 @@ const upload = multer({
   }
 });
 
-// Helper function to get the folder path based on image type
-const getImageFolder = (type) => {
-  const folderMap = {
-    'campus': 'images/campuses',
-    'course': 'images/courses', 
-    'video': 'images/videos',
-    'series': 'images/series',
-    'book': 'images/books',
-    'user': 'images/users',
-    'avatar': 'images/avatars',
-    'banner': 'images/banners',
-    'marketplace': 'images/marketplace',
-    'feed': 'images/feeds',
-    'chat': 'images/chat',
-    'contact': 'files/contact'
-  };
-  
-  return folderMap[type] || 'images'; // Default to 'images' if type not found
+// Unified folder mapping for all upload types
+const getUploadFolder = (type, uploadType) => {
+  if (uploadType === 'video') {
+    const videoFolders = {
+      'film': 'videos/films',
+      'episode': 'videos/episodes', 
+      'lesson': 'videos/lessons'
+    };
+    return videoFolders[type] || 'videos';
+  } else if (uploadType === 'image') {
+    const imageFolders = {
+      'campus': 'images/campuses',
+      'course': 'images/courses', 
+      'video': 'images/videos',
+      'series': 'images/series',
+      'book': 'images/books',
+      'user': 'images/users',
+      'avatar': 'images/avatars',
+      'banner': 'images/banners',
+      'marketplace': 'images/marketplace',
+      'feed': 'images/feeds',
+      'chat': 'images/chat',
+      'contact': 'files/contact'
+    };
+    return imageFolders[type] || 'images';
+  } else if (uploadType === 'file') {
+    return 'files';
+  }
+  return 'uploads';
 };
 
-// Helper function to validate image type
-const validateImageType = (type) => {
-  const validTypes = [
-    'campus', 'course', 'video', 'series', 'book', 
-    'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat', 'contact'
-  ];
-  
-  return validTypes.includes(type);
+// Unified type validation
+const validateUploadType = (type, uploadType) => {
+  if (uploadType === 'video') {
+    return ['film', 'episode', 'lesson'].includes(type);
+  } else if (uploadType === 'image') {
+    return ['campus', 'course', 'video', 'series', 'book', 'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat', 'contact'].includes(type);
+  }
+  return true; // Files don't need type validation
 };
 
 // Helper function to clean up temporary files
@@ -101,516 +109,173 @@ const cleanupTempFile = (filePath) => {
 };
 
 /**
- * Enhanced smart upload function with optimized B2 large file handling
- * Automatically chooses the best upload method based on file size and B2 best practices
- * Supports 4K videos and files up to 5GB+ with resumable uploads
+ * Unified upload function that handles all upload types
  */
-const smartUpload = async (filePath, fileName, fileSize, progressCallback = null) => {
+const unifiedUpload = async (req, res, uploadType) => {
+  const uploadId = uuidv4();
+  const type = req.query.type;
+  
   try {
-    console.log(`📤 Smart upload starting for: ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)}MB)`);
-    
-    // Add debug info for file size threshold
-    const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
-    if (fileSize > LARGE_FILE_THRESHOLD) {
-      console.log(`📋 Large file detected (>${(LARGE_FILE_THRESHOLD / 1024 / 1024)}MB), using large file API`);
-    } else {
-      console.log(`📋 Small file detected (<${(LARGE_FILE_THRESHOLD / 1024 / 1024)}MB), using regular upload`);
-    }
-    
-    // Enhanced progress callback with debug logging
-    const enhancedProgressCallback = (progressData) => {
-      console.log(`📊 Upload Progress: ${progressData.progress}% (${progressData.completedChunks || 0}/${progressData.totalChunks || 1} parts)`);
-      if (progressCallback) {
-        progressCallback(progressData);
-      }
-    };
-    
-    // Use the new optimized upload system that automatically handles:
-    // - Small files (<100MB): Regular B2 upload
-    // - Large files (>=100MB): B2 large file API with parallel parts and resumable uploads
-    const result = await uploadFileWithRetry(filePath, fileName, 3, enhancedProgressCallback);
-    
-    console.log(`✅ Smart upload completed: ${result.fileId}`);
-    return result;
-    
-  } catch (error) {
-    console.error('❌ Smart upload failed:', error.message);
-    
-    // Enhanced error handling with cleanup suggestions
-    if (error.message.includes('getaddrinfo ENOTFOUND')) {
-      console.error('🚨 DNS Resolution Error Detected!');
-      console.error('This appears to be a network connectivity issue with Backblaze B2 servers.');
-      console.error('Possible solutions:');
-      console.error('1. Check your internet connection');
-      console.error('2. Verify DNS settings');
-      console.error('3. Try again in a few minutes');
-      console.error('4. Check if Backblaze B2 is experiencing outages');
-      
-      // Try to list and clean up any unfinished uploads
-      try {
-        console.log('🧹 Checking for unfinished uploads to clean up...');
-        const unfinishedUploads = await listUnfinishedUploads();
-        if (unfinishedUploads.length > 0) {
-          console.log(`📋 Found ${unfinishedUploads.length} unfinished uploads that may need cleanup`);
-        }
-      } catch (cleanupError) {
-        console.warn('⚠️ Could not check unfinished uploads:', cleanupError.message);
-      }
-    }
-    
-    throw error;
-  }
-};
-
-const uploadImage = async (req, res) => {
-  try {
-    console.log('🖼️ Starting image upload process...');
-    
-    // Get and validate the type query parameter
-    const { type } = req.query;
-    
-    if (!type) {
+    // Validate upload type and type parameter
+    if (uploadType === 'image' && !type) {
       return errorResponse(res, 400, 'Image type is required. Use query parameter: ?type=campus|course|video|series|book|user|avatar|banner|marketplace|feed|chat');
     }
     
-    if (!validateImageType(type)) {
-      return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat');
-    }
-    
-    console.log('📁 File info:', {
-      originalname: req.file?.originalname,
-      mimetype: req.file?.mimetype,
-      size: req.file?.size,
-      userId: req.userId,
-      imageType: type
-    });
-
-    if (!req.file) {
-      return errorResponse(res, 400, 'No image file provided');
-    }
-
-    // Validate file size (10MB limit for images)
-    if (req.file.size > 10 * 1024 * 1024) {
-      // Clean up temp file
-      cleanupTempFile(req.file.path);
-      return errorResponse(res, 400, 'File size exceeds 10MB limit');
-    }
-
-    // Validate file type
-    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowedImageTypes.includes(req.file.mimetype)) {
-      // Clean up temp file
-      cleanupTempFile(req.file.path);
-      return errorResponse(res, 400, 'Invalid image file type');
-    }
-
-    const imageId = uuidv4();
-    const fileExtension = path.extname(req.file.originalname);
-    const folderPath = getImageFolder(type);
-    const fileName = `${folderPath}/${imageId}${fileExtension}`;
-
-    try {
-      // Send upload start event
-      socketManager.broadcastUploadProgress(req.userId, {
-        uploadType: 'image',
-        uploadId: imageId,
-        imageType: type,
-        stage: 'uploading',
-        progress: 0,
-        message: 'Starting image upload...'
-      });
-      
-      const uploadResult = await uploadFile(fileName, fs.readFileSync(req.file.path));
-      
-      // Send upload complete event
-      socketManager.broadcastUploadComplete(req.userId, {
-        uploadType: 'image',
-        uploadId: imageId,
-        imageType: type,
-        imageUrl: uploadResult.fileUrl,
-        createdAt: new Date()
-      });
-      
-      // Structure response according to node-api-structure
-      const responseData = {
-        _id: imageId,
-        imageUrl: uploadResult.fileUrl,
-        imageType: type,
-        createdAt: new Date()
-      };
-
-      // Clean up temp file
-      cleanupTempFile(req.file.path);
-
-      return successResponse(res, 201, 'Image uploaded successfully', responseData, 'image');
-
-    } catch (error) {
-      // Send error event
-      socketManager.broadcastUploadError(req.userId, {
-        uploadType: 'image',
-        uploadId: imageId,
-        imageType: type,
-        error: error.message,
-        stage: 'upload'
-      });
-      
-      // Clean up temp file on error
-      cleanupTempFile(req.file.path);
-      throw error;
-    }
-
-  } catch (err) {
-    return errorResponse(res, 500, 'Failed to upload image', err.message);
-  }
-};
-
-// Helper function to get video folder based on type
-const getVideoFolder = (videoType) => {
-  const videoFolders = {
-    'film': 'videos/films',
-    'episode': 'videos/episodes', 
-    'lesson': 'videos/lessons'
-  };
-  
-  return videoFolders[videoType] || 'videos';
-};
-
-// Helper function to validate video type
-const validateVideoType = (videoType) => {
-  const validTypes = ['film', 'episode', 'lesson'];
-  return validTypes.includes(videoType);
-};
-
-const uploadVideo = async (req, res) => {
-  const videoId = uuidv4();
-  const videoType = req.query.type;
-
-  try {
-    if (!videoType || !validateVideoType(videoType)) {
+    if (uploadType === 'video' && (!type || !validateUploadType(type, uploadType))) {
       return errorResponse(res, 400, 'Invalid or missing video type. Use ?type=film|episode|lesson');
     }
-
-    const file = req.file;
-    if (!file || file.size > 10 * 1024 * 1024 * 1024) {
-      return errorResponse(res, 400, 'Invalid video file or exceeds 10GB size limit.');
+    
+    if (uploadType === 'image' && !validateUploadType(type, uploadType)) {
+      return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat');
     }
 
-    const allowedTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
-    if (!allowedTypes.includes(file.mimetype)) {
-      return errorResponse(res, 400, 'Unsupported video format.');
+    if (!req.file) {
+      return errorResponse(res, 400, `No ${uploadType} file provided`);
     }
 
-    const fileExt = path.extname(file.originalname).toLowerCase();
-    const videoFolder = getVideoFolder(videoType);
-    const originalFileName = `${videoFolder}/${videoId}/original${fileExt}`;
-
-    broadcastProgress(req.userId, videoId, videoType, 'uploading', 0, 'Starting video upload...');
+    // File size validation
+    const maxSizes = {
+      'image': 10 * 1024 * 1024, // 10MB
+      'video': 10 * 1024 * 1024 * 1024, // 10GB
+      'file': 1 * 1024 * 1024 * 1024 // 1GB
+    };
     
-    const uploadResult = await smartUpload(file.path, originalFileName, file.size, (progressData) =>
-      broadcastProgress(req.userId, videoId, videoType, 'uploading', progressData.progress, progressData.message, progressData)
-    );
+    if (req.file.size > maxSizes[uploadType]) {
+      cleanupTempFile(req.file.path);
+      return errorResponse(res, 400, `File size exceeds ${(maxSizes[uploadType] / 1024 / 1024).toFixed(0)}MB limit`);
+    }
 
-    broadcastProgress(req.userId, videoId, videoType, 'uploading', 100, 'Upload complete, starting transcoding...');
-
-    const buffer = fs.readFileSync(file.path);
-
-    broadcastProgress(req.userId, videoId, videoType, 'transcoding', 0, 'Starting video transcoding...');
+    // File type validation
+    const allowedTypes = {
+      'image': ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
+      'video': ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'],
+      'file': [] // Allow any file type
+    };
     
-    const transcodeResult = await transcodeToHLS(buffer, videoId, videoType);
+    if (uploadType !== 'file' && !allowedTypes[uploadType].includes(req.file.mimetype)) {
+      cleanupTempFile(req.file.path);
+      return errorResponse(res, 400, `Invalid ${uploadType} file type`);
+    }
 
-    broadcastProgress(req.userId, videoId, videoType, 'transcoding', 100, 'Video transcoding complete!');
+    // Generate file path
+    const fileExt = path.extname(req.file.originalname).toLowerCase();
+    const folder = getUploadFolder(type, uploadType);
+    const fileName = uploadType === 'video' 
+      ? `${folder}/${uploadId}/original${fileExt}`
+      : `${folder}/${uploadId}${fileExt}`;
 
+    // Broadcast upload start
+    socketManager.broadcastUploadProgress(req.userId, {
+      uploadType,
+      uploadId,
+      ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
+      stage: 'uploading',
+      progress: 0,
+      message: `Starting ${uploadType} upload...`
+    });
+
+    // Upload file
+    const uploadResult = await uploadFileSmart(file.path, fileName, file.size, (progressData) => {
+      socketManager.broadcastUploadProgress(req.userId, {
+        uploadType,
+        uploadId,
+        ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
+        stage: 'uploading',
+        progress: progressData.progress,
+        message: progressData.message || `Uploading ${uploadType}...`,
+        ...progressData
+      });
+    });
+
+    // Handle video transcoding
+    let transcodeResult = null;
+    if (uploadType === 'video') {
+      socketManager.broadcastUploadProgress(req.userId, {
+        uploadType,
+        uploadId,
+        videoType: type,
+        stage: 'transcoding',
+        progress: 0,
+        message: 'Starting video transcoding...'
+      });
+
+      const buffer = fs.readFileSync(file.path);
+      transcodeResult = await transcodeToHLS(buffer, uploadId, type);
+
+      socketManager.broadcastUploadProgress(req.userId, {
+        uploadType,
+        uploadId,
+        videoType: type,
+        stage: 'transcoding',
+        progress: 100,
+        message: 'Video transcoding complete!'
+      });
+    }
+
+    // Cleanup and prepare response
     cleanupTempFile(file.path);
 
     const responseData = {
-      _id: videoId,
-      videoUrl: transcodeResult.videoUrl,
-      originalVideoUrl: uploadResult.fileUrl,
-      videoType,
+      _id: uploadId,
+      ...(uploadType === 'video' ? {
+        videoUrl: transcodeResult.videoUrl,
+        originalVideoUrl: uploadResult.fileUrl,
+        videoType: type,
+        resolutions: transcodeResult.resolutions,
+        duration: transcodeResult.duration
+      } : uploadType === 'image' ? {
+        imageUrl: uploadResult.fileUrl,
+        imageType: type
+      } : {
+        fileUrl: uploadResult.fileUrl,
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype
+      }),
       createdAt: new Date()
     };
 
+    // Broadcast completion
     socketManager.broadcastUploadComplete(req.userId, {
-      uploadType: 'video',
-      uploadId: videoId,
-      videoType,
-      ...responseData,
-      resolutions: transcodeResult.resolutions,
-      duration: transcodeResult.duration
+      uploadType,
+      uploadId,
+      ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
+      ...responseData
     });
 
-    return successResponse(res, 201, 'Video uploaded and processed successfully', responseData, 'video');
+    return successResponse(res, 201, `${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} uploaded successfully`, responseData, uploadType);
 
   } catch (error) {
-    console.error('Video upload failed:', error);
+    console.error(`${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} upload failed:`, error);
 
     socketManager.broadcastUploadError(req.userId, {
-      uploadType: 'video',
-      uploadId: videoId,
-      videoType,
+      uploadType,
+      uploadId,
+      ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
       error: error.message,
       stage: 'upload'
     });
 
     cleanupTempFile(req.file?.path);
-    return errorResponse(res, 500, 'Video upload failed', error.message);
+    return errorResponse(res, 500, `${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} upload failed`, error.message);
   }
 };
 
-// Utility wrapper for broadcasting upload progress
-function broadcastProgress(userId, uploadId, videoType, stage, progress, message, extra = {}) {
-  socketManager.broadcastUploadProgress(userId, {
-    uploadType: 'video',
-    uploadId,
-    videoType,
-    stage,
-    progress,
-    message,
-    ...extra
-  });
-}
+const uploadImage = async (req, res) => {
+  return unifiedUpload(req, res, 'image');
+};
+
+const uploadVideo = async (req, res) => {
+  return unifiedUpload(req, res, 'video');
+};
 
 const uploadGeneralFile = async (req, res) => {
-  let uploadId = null;
-  
-  try {
-    console.log('📄 Starting general file upload to storage...');
-    
-    // File validation
-    if (!req.file) {
-      return errorResponse(res, 400, 'No file provided');
-    }
-
-    if (req.file.size > 1 * 1024 * 1024 * 1024) { // 1GB limit for general files
-      return errorResponse(res, 400, 'File too large. Maximum size is 1GB');
-    }
-
-    uploadId = uuidv4();
-    const fileExtension = path.extname(req.file.originalname).toLowerCase();
-    const fileName = `files/${uploadId}${fileExtension}`;
-
-    console.log('📤 Starting file upload with smart handling...');
-    
-    // Send upload start event
-    socketManager.broadcastUploadProgress(req.userId, {
-      uploadType: 'file',
-      uploadId: uploadId,
-      stage: 'uploading',
-      progress: 0,
-      message: 'Starting file upload...'
-    });
-    
-    const uploadResult = await smartUpload(
-      req.file.path, 
-      fileName,
-      req.file.size,
-      (progressData) => {
-        // Progress callback for smart upload
-        socketManager.broadcastUploadProgress(req.userId, {
-          uploadType: 'file',
-          uploadId: uploadId,
-          stage: 'uploading',
-          progress: progressData.progress,
-          message: progressData.message || 'Uploading file...',
-          completedChunks: progressData.completedChunks,
-          totalChunks: progressData.totalChunks,
-          currentChunk: progressData.currentChunk,
-          fileSize: progressData.fileSize,
-          uploadedBytes: progressData.uploadedBytes,
-          uploadSpeed: progressData.uploadSpeed,
-          timeRemaining: progressData.timeRemaining
-        });
-      }
-    );
-    
-    console.log('✅ File upload complete');
-    
-    // Send upload complete event
-    socketManager.broadcastUploadProgress(req.userId, {
-      uploadType: 'file',
-      uploadId: uploadId,
-      stage: 'complete',
-      progress: 100,
-      message: 'File upload complete!'
-    });
-
-    // Clean up temp file
-    cleanupTempFile(req.file.path);
-
-    return successResponse(res, 'File uploaded successfully', {
-      uploadId: uploadId,
-      fileUrl: uploadResult.fileUrl,
-      fileName: req.file.originalname,
-      fileSize: req.file.size,
-      mimeType: req.file.mimetype
-    });
-
-  } catch (error) {
-    console.error('❌ File upload error:', error);
-    
-    // Send error event
-    if (uploadId) {
-      socketManager.broadcastUploadProgress(req.userId, {
-        uploadType: 'file',
-        uploadId: uploadId,
-        stage: 'error',
-        progress: 0,
-        message: 'File upload failed',
-        error: error.message
-      });
-    }
-
-    // Clean up temp file
-    if (req.file?.path) {
-      cleanupTempFile(req.file.path);
-    }
-    
-    return errorResponse(res, 500, 'File upload failed', error.message);
-  }
-};
-
-/**
- * List unfinished large file uploads for cleanup and monitoring
- * GET /api/upload/unfinished
- */
-const listUnfinishedLargeFiles = async (req, res) => {
-  try {
-    console.log('📋 Listing unfinished large file uploads...');
-    
-    const unfinishedFiles = await listUnfinishedUploads();
-    
-    // Filter and format the response
-    const formattedFiles = unfinishedFiles.map(file => ({
-      fileId: file.fileId,
-      fileName: file.fileName,
-      uploadTimestamp: file.uploadTimestamp,
-      contentType: file.contentType,
-      fileInfo: file.fileInfo,
-      size: file.fileInfo?.file_size || 'Unknown',
-      ageHours: Math.round((Date.now() - file.uploadTimestamp) / (1000 * 60 * 60))
-    }));
-    
-    console.log(`📋 Found ${formattedFiles.length} unfinished uploads`);
-    
-    return successResponse(res, 'Unfinished uploads retrieved successfully', {
-      count: formattedFiles.length,
-      files: formattedFiles
-    });
-    
-  } catch (error) {
-    console.error('❌ Failed to list unfinished uploads:', error);
-    return errorResponse(res, 500, 'Failed to list unfinished uploads', error.message);
-  }
-};
-
-/**
- * Cancel/cleanup specific unfinished large file upload
- * DELETE /api/upload/unfinished/:fileId
- */
-const cancelUnfinishedUpload = async (req, res) => {
-  try {
-    const { fileId } = req.params;
-    
-    if (!fileId) {
-      return errorResponse(res, 400, 'File ID is required');
-    }
-    
-    console.log(`🧹 Canceling unfinished upload: ${fileId}`);
-    
-    const { cancelLargeFileUpload } = require('../utils/chunkedUpload');
-    await cancelLargeFileUpload(fileId);
-    
-    console.log(`✅ Successfully canceled upload: ${fileId}`);
-    
-    return successResponse(res, 'Upload canceled successfully', {
-      fileId: fileId,
-      status: 'canceled'
-    });
-    
-  } catch (error) {
-    console.error('❌ Failed to cancel upload:', error);
-    return errorResponse(res, 500, 'Failed to cancel upload', error.message);
-  }
-};
-
-/**
- * Bulk cleanup of old unfinished uploads
- * POST /api/upload/cleanup
- */
-const cleanupOldUploads = async (req, res) => {
-  try {
-    const { olderThanHours = 24 } = req.body; // Default: cleanup uploads older than 24 hours
-    
-    console.log(`🧹 Starting cleanup of uploads older than ${olderThanHours} hours...`);
-    
-    const unfinishedFiles = await listUnfinishedUploads();
-    const cutoffTime = Date.now() - (olderThanHours * 60 * 60 * 1000);
-    
-    const filesToCleanup = unfinishedFiles.filter(file => file.uploadTimestamp < cutoffTime);
-    
-    if (filesToCleanup.length === 0) {
-      return successResponse(res, 'No old uploads found to cleanup', {
-        checked: unfinishedFiles.length,
-        cleaned: 0
-      });
-    }
-    
-    console.log(`📋 Found ${filesToCleanup.length} uploads to cleanup`);
-    
-    const { cancelLargeFileUpload } = require('../utils/chunkedUpload');
-    const results = {
-      success: 0,
-      failed: 0,
-      errors: []
-    };
-    
-    // Cancel uploads in parallel (with concurrency limit)
-    const CLEANUP_BATCH_SIZE = 5;
-    for (let i = 0; i < filesToCleanup.length; i += CLEANUP_BATCH_SIZE) {
-      const batch = filesToCleanup.slice(i, i + CLEANUP_BATCH_SIZE);
-      
-      const promises = batch.map(async (file) => {
-        try {
-          await cancelLargeFileUpload(file.fileId);
-          results.success++;
-          console.log(`✅ Cleaned up: ${file.fileName} (${file.fileId})`);
-        } catch (error) {
-          results.failed++;
-          results.errors.push({
-            fileId: file.fileId,
-            fileName: file.fileName,
-            error: error.message
-          });
-          console.error(`❌ Failed to cleanup ${file.fileId}:`, error.message);
-        }
-      });
-      
-      await Promise.all(promises);
-    }
-    
-    console.log(`✅ Cleanup completed: ${results.success} successful, ${results.failed} failed`);
-    
-    return successResponse(res, 'Cleanup completed', {
-      checked: unfinishedFiles.length,
-      cleaned: results.success,
-      failed: results.failed,
-      errors: results.errors
-    });
-    
-  } catch (error) {
-    console.error('❌ Bulk cleanup failed:', error);
-    return errorResponse(res, 500, 'Bulk cleanup failed', error.message);
-  }
+  return unifiedUpload(req, res, 'file');
 };
 
 module.exports = {
   upload,
   uploadImage,
   uploadVideo,
-  uploadGeneralFile,
-  
-  // New upload management endpoints
-  listUnfinishedLargeFiles,
-  cancelUnfinishedUpload,
-  cleanupOldUploads
+  uploadGeneralFile
 }; 
