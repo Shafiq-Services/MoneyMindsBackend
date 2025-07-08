@@ -4,6 +4,9 @@ const {
   uploadImage,
   uploadVideo,
   uploadGeneralFile,
+  listUnfinishedLargeFiles,
+  cancelUnfinishedUpload,
+  cleanupOldUploads
 } = require('../controllers/upload');
 const authMiddleware = require('../middlewares/auth');
 const { errorResponse } = require('../utils/apiResponse');
@@ -43,6 +46,9 @@ router.post('/file', uploadFileMiddleware.single('file'), enhancedErrorHandler, 
 router.post('/image', authMiddleware, uploadImageMiddleware.single('image'), enhancedErrorHandler, uploadImage);
 router.post('/video', authMiddleware, uploadVideoMiddleware.single('video'), enhancedErrorHandler, uploadVideo);
 
-
+// Upload management endpoints for large file handling
+router.get('/unfinished', authMiddleware, listUnfinishedLargeFiles);
+router.delete('/unfinished/:fileId', authMiddleware, cancelUnfinishedUpload);
+router.post('/cleanup', authMiddleware, cleanupOldUploads);
 
 module.exports = router; 

@@ -677,7 +677,7 @@ class SocketManager {
 
   // Send upload progress to specific user
   broadcastUploadProgress(userId, data) {
-    console.log(`📤 [Socket Manager] Broadcasting upload progress to user ${userId}:`, data);
+    // console.log(`📤 [Socket Manager] Broadcasting upload progress to user ${userId}:`, data);
     this.io.to(`user:${userId}`).emit('upload-progress', data);
   }
 

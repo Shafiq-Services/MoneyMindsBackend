@@ -40,6 +40,7 @@ const corsOptions = {
     'http://localhost:4173',
     'http://localhost:8080',
     'https://moneyminds-fddbbaejd3c2afdc.canadacentral-01.azurewebsites.net',
+    'https://moneyminds-fullstack.web.app',
     // Add your production frontend URL here when deployed
   ],
   credentials: true,

@@ -2,11 +2,13 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const { uploadFile } = require('../utils/backblazeB2');
-const { uploadFileWithRetry } = require('../utils/chunkedUpload');
+const { uploadFileWithRetry, uploadFileOptimized, listUnfinishedUploads } = require('../utils/chunkedUpload');
+const { generateDirectUploadUrl, generateMultipartUploadUrls, completeMultipartUpload } = require('../utils/b2DirectUpload');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const fs = require('fs');
+const axios = require('axios');
 
 // Configure multer for disk storage to handle large files efficiently
 const storage = multer.diskStorage({
@@ -95,6 +97,66 @@ const cleanupTempFile = (filePath) => {
         console.log('✅ Temp file cleaned up:', filePath);
       }
     });
+  }
+};
+
+/**
+ * Enhanced smart upload function with optimized B2 large file handling
+ * Automatically chooses the best upload method based on file size and B2 best practices
+ * Supports 4K videos and files up to 5GB+ with resumable uploads
+ */
+const smartUpload = async (filePath, fileName, fileSize, progressCallback = null) => {
+  try {
+    console.log(`📤 Smart upload starting for: ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)}MB)`);
+    
+    // Add debug info for file size threshold
+    const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
+    if (fileSize > LARGE_FILE_THRESHOLD) {
+      console.log(`📋 Large file detected (>${(LARGE_FILE_THRESHOLD / 1024 / 1024)}MB), using large file API`);
+    } else {
+      console.log(`📋 Small file detected (<${(LARGE_FILE_THRESHOLD / 1024 / 1024)}MB), using regular upload`);
+    }
+    
+    // Enhanced progress callback with debug logging
+    const enhancedProgressCallback = (progressData) => {
+      console.log(`📊 Progress: ${progressData.progress}% (${progressData.completedChunks || 0}/${progressData.totalChunks || 1} parts, ${progressData.activeParts || 0} active)`);
+      if (progressCallback) progressCallback(progressData);
+    };
+    
+    // Use the new optimized upload system that automatically handles:
+    // - Small files (<100MB): Regular B2 upload
+    // - Large files (>=100MB): B2 large file API with parallel parts and resumable uploads
+    const result = await uploadFileWithRetry(filePath, fileName, 3, enhancedProgressCallback);
+    
+    console.log(`✅ Smart upload completed: ${result.fileId}`);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Smart upload failed:', error.message);
+    
+    // Enhanced error handling with cleanup suggestions
+    if (error.message.includes('getaddrinfo ENOTFOUND')) {
+      console.error('🚨 DNS Resolution Error Detected!');
+      console.error('This appears to be a network connectivity issue with Backblaze B2 servers.');
+      console.error('Possible solutions:');
+      console.error('1. Check your internet connection');
+      console.error('2. Verify DNS settings');
+      console.error('3. Try again in a few minutes');
+      console.error('4. Check if Backblaze B2 is experiencing outages');
+      
+      // Try to list and clean up any unfinished uploads
+      try {
+        console.log('🧹 Checking for unfinished uploads to clean up...');
+        const unfinishedUploads = await listUnfinishedUploads();
+        if (unfinishedUploads.length > 0) {
+          console.log(`📋 Found ${unfinishedUploads.length} unfinished uploads that may need cleanup`);
+        }
+      } catch (cleanupError) {
+        console.warn('⚠️ Could not check unfinished uploads:', cleanupError.message);
+      }
+    }
+    
+    throw error;
   }
 };
 
@@ -207,7 +269,8 @@ const getVideoFolder = (videoType) => {
     'episode': 'videos/episodes', 
     'lesson': 'videos/lessons'
   };
-  return videoFolders[videoType] || 'videos/films';
+  
+  return videoFolders[videoType] || 'videos';
 };
 
 // Helper function to validate video type
@@ -255,8 +318,8 @@ const uploadVideo = async (req, res) => {
     const videoFolder = getVideoFolder(videoType);
     const originalFileName = `${videoFolder}/${videoId}/original${fileExtension}`;
 
-    // Upload original video file using chunked upload with progress tracking
-    console.log('📤 Starting original video upload with chunks...');
+    // Upload original video file using smart upload
+    console.log('📤 Starting video upload with smart handling...');
     
     // Send upload start event
     socketManager.broadcastUploadProgress(req.userId, {
@@ -268,12 +331,12 @@ const uploadVideo = async (req, res) => {
       message: 'Starting video upload...'
     });
     
-    const originalUploadResult = await uploadFileWithRetry(
+    const originalUploadResult = await smartUpload(
       req.file.path, 
       originalFileName,
-      3, // maxRetries
+      req.file.size,
       (progressData) => {
-        // Progress callback for chunked upload
+        // Progress callback for smart upload
         socketManager.broadcastUploadProgress(req.userId, {
           uploadType: 'video',
           uploadId: videoId,
@@ -395,124 +458,235 @@ const uploadVideo = async (req, res) => {
 };
 
 const uploadGeneralFile = async (req, res) => {
+  let uploadId = null;
+  
   try {
-    console.log('📎 Starting file upload process...');
+    console.log('📄 Starting general file upload to storage...');
     
-    // Get and validate the type query parameter
-    const { type } = req.query;
-    
-    if (!type) {
-      return errorResponse(res, 400, 'File type is required. Use query parameter: ?type=contact|document|other');
-    }
-    
-    console.log('📁 File info:', {
-      originalname: req.file?.originalname,
-      mimetype: req.file?.mimetype,
-      size: req.file?.size
-    });
-
+    // File validation
     if (!req.file) {
       return errorResponse(res, 400, 'No file provided');
     }
 
-    // Validate file size (1GB limit for files)
-    if (req.file.size > 1 * 1024 * 1024 * 1024) {
-      // Clean up temp file
-      cleanupTempFile(req.file.path);
-      return errorResponse(res, 400, 'File size exceeds 1GB limit');
+    if (req.file.size > 1 * 1024 * 1024 * 1024) { // 1GB limit for general files
+      return errorResponse(res, 400, 'File too large. Maximum size is 1GB');
     }
 
-    // Accept any file type - no restrictions
-    console.log('📄 File type:', req.file.mimetype);
+    uploadId = uuidv4();
+    const fileExtension = path.extname(req.file.originalname).toLowerCase();
+    const fileName = `files/${uploadId}${fileExtension}`;
 
-    const fileId = uuidv4();
-    const fileExtension = path.extname(req.file.originalname);
-    const folderPath = `files/${type}`;
-    const fileName = `${folderPath}/${fileId}${fileExtension}`;
+    console.log('📤 Starting file upload with smart handling...');
+    
+    // Send upload start event
+    socketManager.broadcastUploadProgress(req.userId, {
+      uploadType: 'file',
+      uploadId: uploadId,
+      stage: 'uploading',
+      progress: 0,
+      message: 'Starting file upload...'
+    });
+    
+    const uploadResult = await smartUpload(
+      req.file.path, 
+      fileName,
+      req.file.size,
+      (progressData) => {
+        // Progress callback for smart upload
+        socketManager.broadcastUploadProgress(req.userId, {
+          uploadType: 'file',
+          uploadId: uploadId,
+          stage: 'uploading',
+          progress: progressData.progress,
+          message: progressData.message || 'Uploading file...',
+          completedChunks: progressData.completedChunks,
+          totalChunks: progressData.totalChunks,
+          currentChunk: progressData.currentChunk,
+          fileSize: progressData.fileSize,
+          uploadedBytes: progressData.uploadedBytes,
+          uploadSpeed: progressData.uploadSpeed,
+          timeRemaining: progressData.timeRemaining
+        });
+      }
+    );
+    
+    console.log('✅ File upload complete');
+    
+    // Send upload complete event
+    socketManager.broadcastUploadProgress(req.userId, {
+      uploadType: 'file',
+      uploadId: uploadId,
+      stage: 'complete',
+      progress: 100,
+      message: 'File upload complete!'
+    });
 
-    try {
-      // Send upload start event
+    // Clean up temp file
+    cleanupTempFile(req.file.path);
+
+    return successResponse(res, 'File uploaded successfully', {
+      uploadId: uploadId,
+      fileUrl: uploadResult.fileUrl,
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype
+    });
+
+  } catch (error) {
+    console.error('❌ File upload error:', error);
+    
+    // Send error event
+    if (uploadId) {
       socketManager.broadcastUploadProgress(req.userId, {
         uploadType: 'file',
-        uploadId: fileId,
-        fileType: req.file.mimetype,
-        fileName: req.file.originalname,
-        stage: 'uploading',
+        uploadId: uploadId,
+        stage: 'error',
         progress: 0,
-        message: 'Starting file upload...'
+        message: 'File upload failed',
+        error: error.message
       });
-      
-      // Use chunked upload with progress tracking for large files
-      const uploadResult = await uploadFileWithRetry(
-        req.file.path,
-        fileName,
-        3, // maxRetries
-        (progressData) => {
-          // Progress callback for chunked upload
-          socketManager.broadcastUploadProgress(req.userId, {
-            uploadType: 'file',
-            uploadId: fileId,
-            fileType: req.file.mimetype,
-            fileName: req.file.originalname,
-            stage: 'uploading',
-            progress: progressData.progress,
-            message: progressData.message,
-            completedChunks: progressData.completedChunks,
-            totalChunks: progressData.totalChunks,
-            currentChunk: progressData.currentChunk,
-            fileSize: progressData.fileSize,
-            uploadedBytes: progressData.uploadedBytes,
-            uploadSpeed: progressData.uploadSpeed,
-            timeRemaining: progressData.timeRemaining
-          });
-        }
-      );
-      
-      // Send upload complete event
-      socketManager.broadcastUploadComplete(req.userId, {
-        uploadType: 'file',
-        uploadId: fileId,
-        fileUrl: uploadResult.fileUrl,
-        fileName: req.file.originalname,
-        fileType: req.file.mimetype,
-        fileSize: req.file.size,
-        folderPath: folderPath,
-        createdAt: new Date()
-      });
-      
-      // Structure response according to node-api-structure
-      const responseData = {
-        _id: fileId,
-        fileUrl: uploadResult.fileUrl,
-        fileName: req.file.originalname,
-        fileType: req.file.mimetype,
-        fileSize: req.file.size,
-        folderPath: folderPath,
-        createdAt: new Date()
-      };
-
-      // Clean up temp file
-      cleanupTempFile(req.file.path);
-
-      return successResponse(res, 201, 'File uploaded successfully', responseData, 'file');
-
-    } catch (error) {
-      // Send error event
-      socketManager.broadcastUploadError(req.userId, {
-        uploadType: 'file',
-        uploadId: fileId,
-        fileName: req.file.originalname,
-        error: error.message,
-        stage: 'upload'
-      });
-      
-      // Clean up temp file on error
-      cleanupTempFile(req.file.path);
-      throw error;
     }
 
-  } catch (err) {
-    return errorResponse(res, 500, 'Failed to upload file', err.message);
+    // Clean up temp file
+    if (req.file?.path) {
+      cleanupTempFile(req.file.path);
+    }
+    
+    return errorResponse(res, 500, 'File upload failed', error.message);
+  }
+};
+
+/**
+ * List unfinished large file uploads for cleanup and monitoring
+ * GET /api/upload/unfinished
+ */
+const listUnfinishedLargeFiles = async (req, res) => {
+  try {
+    console.log('📋 Listing unfinished large file uploads...');
+    
+    const unfinishedFiles = await listUnfinishedUploads();
+    
+    // Filter and format the response
+    const formattedFiles = unfinishedFiles.map(file => ({
+      fileId: file.fileId,
+      fileName: file.fileName,
+      uploadTimestamp: file.uploadTimestamp,
+      contentType: file.contentType,
+      fileInfo: file.fileInfo,
+      size: file.fileInfo?.file_size || 'Unknown',
+      ageHours: Math.round((Date.now() - file.uploadTimestamp) / (1000 * 60 * 60))
+    }));
+    
+    console.log(`📋 Found ${formattedFiles.length} unfinished uploads`);
+    
+    return successResponse(res, 'Unfinished uploads retrieved successfully', {
+      count: formattedFiles.length,
+      files: formattedFiles
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to list unfinished uploads:', error);
+    return errorResponse(res, 500, 'Failed to list unfinished uploads', error.message);
+  }
+};
+
+/**
+ * Cancel/cleanup specific unfinished large file upload
+ * DELETE /api/upload/unfinished/:fileId
+ */
+const cancelUnfinishedUpload = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    
+    if (!fileId) {
+      return errorResponse(res, 400, 'File ID is required');
+    }
+    
+    console.log(`🧹 Canceling unfinished upload: ${fileId}`);
+    
+    const { cancelLargeFileUpload } = require('../utils/chunkedUpload');
+    await cancelLargeFileUpload(fileId);
+    
+    console.log(`✅ Successfully canceled upload: ${fileId}`);
+    
+    return successResponse(res, 'Upload canceled successfully', {
+      fileId: fileId,
+      status: 'canceled'
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to cancel upload:', error);
+    return errorResponse(res, 500, 'Failed to cancel upload', error.message);
+  }
+};
+
+/**
+ * Bulk cleanup of old unfinished uploads
+ * POST /api/upload/cleanup
+ */
+const cleanupOldUploads = async (req, res) => {
+  try {
+    const { olderThanHours = 24 } = req.body; // Default: cleanup uploads older than 24 hours
+    
+    console.log(`🧹 Starting cleanup of uploads older than ${olderThanHours} hours...`);
+    
+    const unfinishedFiles = await listUnfinishedUploads();
+    const cutoffTime = Date.now() - (olderThanHours * 60 * 60 * 1000);
+    
+    const filesToCleanup = unfinishedFiles.filter(file => file.uploadTimestamp < cutoffTime);
+    
+    if (filesToCleanup.length === 0) {
+      return successResponse(res, 'No old uploads found to cleanup', {
+        checked: unfinishedFiles.length,
+        cleaned: 0
+      });
+    }
+    
+    console.log(`📋 Found ${filesToCleanup.length} uploads to cleanup`);
+    
+    const { cancelLargeFileUpload } = require('../utils/chunkedUpload');
+    const results = {
+      success: 0,
+      failed: 0,
+      errors: []
+    };
+    
+    // Cancel uploads in parallel (with concurrency limit)
+    const CLEANUP_BATCH_SIZE = 5;
+    for (let i = 0; i < filesToCleanup.length; i += CLEANUP_BATCH_SIZE) {
+      const batch = filesToCleanup.slice(i, i + CLEANUP_BATCH_SIZE);
+      
+      const promises = batch.map(async (file) => {
+        try {
+          await cancelLargeFileUpload(file.fileId);
+          results.success++;
+          console.log(`✅ Cleaned up: ${file.fileName} (${file.fileId})`);
+        } catch (error) {
+          results.failed++;
+          results.errors.push({
+            fileId: file.fileId,
+            fileName: file.fileName,
+            error: error.message
+          });
+          console.error(`❌ Failed to cleanup ${file.fileId}:`, error.message);
+        }
+      });
+      
+      await Promise.all(promises);
+    }
+    
+    console.log(`✅ Cleanup completed: ${results.success} successful, ${results.failed} failed`);
+    
+    return successResponse(res, 'Cleanup completed', {
+      checked: unfinishedFiles.length,
+      cleaned: results.success,
+      failed: results.failed,
+      errors: results.errors
+    });
+    
+  } catch (error) {
+    console.error('❌ Bulk cleanup failed:', error);
+    return errorResponse(res, 500, 'Bulk cleanup failed', error.message);
   }
 };
 
@@ -521,4 +695,9 @@ module.exports = {
   uploadImage,
   uploadVideo,
   uploadGeneralFile,
+  
+  // New upload management endpoints
+  listUnfinishedLargeFiles,
+  cancelUnfinishedUpload,
+  cleanupOldUploads
 }; 
