@@ -571,10 +571,10 @@ const uploadFileSmart = async (filePath, fileName, progressCallback = null) => {
   const networkInfo = await testNetworkSpeed();
   
   if (fileSize >= LARGE_FILE_THRESHOLD) {
-    console.log('📋 Large file detected (≥12MB), using adaptive multithreaded upload');
+    console.log('📋 Large file detected (≥50MB), using adaptive multithreaded upload');
     return await uploadLargeFileOfficial(filePath, fileName, progressCallback, networkInfo);
   } else {
-    console.log('📋 Small file detected (<12MB), using direct upload');
+    console.log('📋 Small file detected (<50MB), using direct upload');
     return await uploadSmallFileOfficial(filePath, fileName, progressCallback);
   }
 };

@@ -175,7 +175,7 @@ const unifiedUpload = async (req, res, uploadType) => {
     });
 
     // Upload file
-    const uploadResult = await uploadFileSmart(file.path, fileName, file.size, (progressData) => {
+    const uploadResult = await uploadFileSmart(req.file.path, fileName, (progressData) => {
       socketManager.broadcastUploadProgress(req.userId, {
         uploadType,
         uploadId,
@@ -199,7 +199,7 @@ const unifiedUpload = async (req, res, uploadType) => {
         message: 'Starting video transcoding...'
       });
 
-      const buffer = fs.readFileSync(file.path);
+      const buffer = fs.readFileSync(req.file.path);
       transcodeResult = await transcodeToHLS(buffer, uploadId, type);
 
       socketManager.broadcastUploadProgress(req.userId, {
@@ -213,7 +213,7 @@ const unifiedUpload = async (req, res, uploadType) => {
     }
 
     // Cleanup and prepare response
-    cleanupTempFile(file.path);
+    cleanupTempFile(req.file.path);
 
     const responseData = {
       _id: uploadId,
