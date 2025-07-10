@@ -3,6 +3,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 const { getSmartUploadConfig } = require('./b2AutoTunedConfig');
+const { getB2S3Url } = require('./b2Url');
 
 // Initialize B2 client with official library and proper User-Agent
 const b2 = new B2({
@@ -333,7 +334,7 @@ const uploadLargeFileOfficial = async (filePath, fileName, progressCallback = nu
     return {
       fileId: finishResult.data.fileId,
       fileName: finishResult.data.fileName,
-      fileUrl: `https://f004.backblazeb2.com/file/${process.env.B2_BUCKET_NAME}/${finishResult.data.fileName}`,
+      fileUrl: getB2S3Url(finishResult.data.fileName),
       fileSize: fileSize,
       uploadTime: Math.round((Date.now() - startTime) / 1000)
     };
@@ -376,7 +377,7 @@ const uploadSmallFileOfficial = async (filePath, fileName, progressCallback = nu
     return {
       fileId: 'empty-file',
       fileName: fileName,
-      fileUrl: `https://f004.backblazeb2.com/file/${process.env.B2_BUCKET_NAME}/${fileName}`,
+      fileUrl: getB2S3Url(fileName),
       fileSize: 0,
       uploadTime: 0
     };
@@ -497,7 +498,7 @@ const uploadSmallFileOfficial = async (filePath, fileName, progressCallback = nu
     return {
       fileId: result.data.fileId,
       fileName: result.data.fileName,
-      fileUrl: `https://f004.backblazeb2.com/file/${process.env.B2_BUCKET_NAME}/${result.data.fileName}`,
+      fileUrl: getB2S3Url(result.data.fileName),
       fileSize: fileSize,
       uploadTime: Math.round((Date.now() - startTime) / 1000)
     };
