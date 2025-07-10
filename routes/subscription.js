@@ -3,6 +3,10 @@ const router = express.Router();
 const subscriptionController = require('../controllers/subscriptionController');
 const authMiddleware = require('../middlewares/auth');
 
+// Subscription Plans (Authentication required)
+router.get('/plans', authMiddleware, subscriptionController.getSubscriptionPlans);
+router.get('/plan', authMiddleware, subscriptionController.getSubscriptionPlan);
+
 // Subscription
 router.post('/buy-plan', authMiddleware, subscriptionController.createSubscription);
 router.post('/cancel', authMiddleware, subscriptionController.cancelSubscription);

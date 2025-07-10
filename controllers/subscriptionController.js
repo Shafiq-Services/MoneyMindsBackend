@@ -592,3 +592,142 @@ exports.deleteBillingInfo = async (req, res) => {
     return errorResponse(res, 500, 'Failed to delete billing info', err.message);
   }
 }; 
+
+/**
+ * Get subscription plans from Stripe
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.getSubscriptionPlans = async (req, res) => {
+  try {
+    console.log('🔍 [Subscription Plans] Fetching subscription plans from Stripe...');
+    
+    // Fetch all active prices from Stripe
+    const prices = await stripe.prices.list({
+      active: true,
+      type: 'recurring',
+      limit: 100
+    });
+
+    console.log(`📊 [Subscription Plans] Found ${prices.data.length} active recurring prices`);
+
+    // Format the prices for frontend consumption
+    const formattedPlans = [];
+    
+    for (const price of prices.data) {
+      try {
+        // Get the product details
+        const product = await stripe.products.retrieve(price.product);
+        
+        // Only include active products
+        if (!product.active) continue;
+        
+        // Format the plan data
+        const plan = {
+          id: price.id,
+          productId: product.id,
+          name: product.name,
+          description: product.description,
+          amount: price.unit_amount,
+          currency: price.currency,
+          interval: price.recurring.interval,
+          intervalCount: price.recurring.interval_count,
+          trialPeriodDays: price.recurring.trial_period_days,
+          formattedAmount: (price.unit_amount / 100).toFixed(2),
+          formattedInterval: price.recurring.interval === 'month' ? 'Monthly' : 
+                           price.recurring.interval === 'year' ? 'Yearly' : 
+                           `Every ${price.recurring.interval_count} ${price.recurring.interval}(s)`,
+          metadata: product.metadata || {},
+          images: product.images || [],
+          features: product.features || [],
+          createdAt: new Date(price.created * 1000),
+          updatedAt: new Date(price.updated * 1000)
+        };
+        
+        formattedPlans.push(plan);
+      } catch (productError) {
+        console.warn(`⚠️ [Subscription Plans] Could not fetch product for price ${price.id}:`, productError.message);
+      }
+    }
+
+    // Sort plans by amount (ascending)
+    formattedPlans.sort((a, b) => a.amount - b.amount);
+
+    console.log(`✅ [Subscription Plans] Successfully formatted ${formattedPlans.length} subscription plans`);
+
+    return successResponse(res, 200, 'Subscription plans retrieved successfully', {
+      plans: formattedPlans,
+      total: formattedPlans.length
+    }, 'subscriptionPlans');
+
+  } catch (error) {
+    console.error('❌ [Subscription Plans] Error fetching subscription plans:', error.message);
+    return errorResponse(res, 500, 'Failed to fetch subscription plans', error.message);
+  }
+};
+
+/**
+ * Get a specific subscription plan from Stripe
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.getSubscriptionPlan = async (req, res) => {
+  try {
+    const { priceId } = req.query;
+    
+    if (!priceId) {
+      return errorResponse(res, 400, 'Price ID is required as query parameter');
+    }
+
+    console.log(`🔍 [Subscription Plan] Fetching plan details for price ID: ${priceId}`);
+    
+    // Fetch the specific price from Stripe
+    const price = await stripe.prices.retrieve(priceId);
+    
+    if (!price.active) {
+      return errorResponse(res, 404, 'Subscription plan not found or inactive');
+    }
+
+    // Get the product details
+    const product = await stripe.products.retrieve(price.product);
+    
+    if (!product.active) {
+      return errorResponse(res, 404, 'Product not found or inactive');
+    }
+
+    // Format the plan data
+    const plan = {
+      id: price.id,
+      productId: product.id,
+      name: product.name,
+      description: product.description,
+      amount: price.unit_amount,
+      currency: price.currency,
+      interval: price.recurring.interval,
+      intervalCount: price.recurring.interval_count,
+      trialPeriodDays: price.recurring.trial_period_days,
+      formattedAmount: (price.unit_amount / 100).toFixed(2),
+      formattedInterval: price.recurring.interval === 'month' ? 'Monthly' : 
+                       price.recurring.interval === 'year' ? 'Yearly' : 
+                       `Every ${price.recurring.interval_count} ${price.recurring.interval}(s)`,
+      metadata: product.metadata || {},
+      images: product.images || [],
+      features: product.features || [],
+      createdAt: new Date(price.created * 1000),
+      updatedAt: new Date(price.updated * 1000)
+    };
+
+    console.log(`✅ [Subscription Plan] Successfully retrieved plan: ${plan.name}`);
+
+    return successResponse(res, 200, 'Subscription plan retrieved successfully', plan, 'subscriptionPlan');
+
+  } catch (error) {
+    console.error('❌ [Subscription Plan] Error fetching subscription plan:', error.message);
+    
+    if (error.type === 'StripeInvalidRequestError') {
+      return errorResponse(res, 404, 'Subscription plan not found');
+    }
+    
+    return errorResponse(res, 500, 'Failed to fetch subscription plan', error.message);
+  }
+}; 

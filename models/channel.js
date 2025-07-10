@@ -4,9 +4,10 @@ const slugify = require('slugify');
 const channelSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   slug: { type: String, unique: true, lowercase: true, trim: true },
-  campusId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campus', required: true },
+  campusId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campus', required: false },
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'ChatCategory' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  isPlatformChannel: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 

@@ -8,6 +8,39 @@ const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const { paginateQuery } = require('../utils/pagination');
 const socketManager = require('../utils/socketManager');
 
+// Helper function to get or create the platform channel
+const getPlatformChannel = async () => {
+  try {
+    let platformChannel = await Channel.findOne({ 
+      isPlatformChannel: true, 
+      name: 'Money Minds' 
+    }).populate('category');
+    
+    if (!platformChannel) {
+      // Get or create GENERAL category
+      let generalCategory = await ChatCategory.findOne({ slug: 'GENERAL' });
+      if (!generalCategory) {
+        generalCategory = await ChatCategory.create({ slug: 'GENERAL' });
+      }
+      
+      // Create the platform channel
+      platformChannel = await Channel.create({
+        name: 'Money Minds',
+        slug: 'money-minds',
+        isPlatformChannel: true,
+        category: generalCategory._id
+      });
+      
+      platformChannel = await Channel.findById(platformChannel._id).populate('category');
+    }
+    
+    return platformChannel;
+  } catch (error) {
+    console.error('Error getting platform channel:', error);
+    return null;
+  }
+};
+
 // POST /channel/add
 const addChannel = async (req, res) => {
   try {
@@ -65,16 +98,33 @@ const listChannels = async (req, res) => {
     }
     // Mark user as in channel list view
     socketManager.markInList(userId);
-    // List channels grouped by category
+    
+    // Get the platform channel
+    const platformChannel = await getPlatformChannel();
+    
+    // List campus channels grouped by category
     const channels = await Channel.find({ campusId }).populate('category').sort({ 'category.slug': 1, name: 1 });
+    
     // Group by category and add unreadCount
     const grouped = {};
+    
+    // Add platform channel to PLATFORM category first
+    if (platformChannel) {
+      grouped['PLATFORM'] = [];
+      const unreadCount = await socketManager.getUnreadCount(userId, platformChannel._id);
+      const { isPlatformChannel, ...platformChannelData } = platformChannel.toObject();
+      grouped['PLATFORM'].push({ ...platformChannelData, unreadCount });
+    }
+    
+    // Add campus channels
     for (const ch of channels) {
       const cat = ch.category ? ch.category.slug : 'GENERAL';
       if (!grouped[cat]) grouped[cat] = [];
       const unreadCount = await socketManager.getUnreadCount(userId, ch._id);
-      grouped[cat].push({ ...ch.toObject(), unreadCount });
+      const { isPlatformChannel, ...channelData } = ch.toObject();
+      grouped[cat].push({ ...channelData, unreadCount });
     }
+    
     return successResponse(res, 200, 'Channels listed successfully', grouped, 'channels');
   } catch (err) {
     return errorResponse(res, 500, 'Failed to list channels', err.message);
@@ -100,10 +150,15 @@ const sendMessage = async (req, res) => {
     if (!channel) {
       return errorResponse(res, 404, 'Channel not found');
     }
-    // Check user is member of campus
-    const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
-    if (!isMember) {
-      return errorResponse(res, 403, 'You must be a member of this campus to send messages');
+    // Check if it's a platform channel or campus channel
+    if (channel.isPlatformChannel) {
+      // Platform channel - no membership check required, all users can send messages
+    } else {
+      // Campus channel - check user is member of campus
+      const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
+      if (!isMember) {
+        return errorResponse(res, 403, 'You must be a member of this campus to send messages');
+      }
     }
     // Create message
     const message = await Message.create({
@@ -134,13 +189,25 @@ const getChannelMembers = async (req, res) => {
     if (!channel) {
       return errorResponse(res, 404, 'Channel not found');
     }
-    // Check user is member of campus
-    const { campus, isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
-    if (!isMember) {
-      return errorResponse(res, 403, 'You must be a member of this campus to view members');
+    
+    let members = [];
+    
+    // Check if it's a platform channel or campus channel
+    if (channel.isPlatformChannel) {
+      // Platform channel - show all users (limit to active users or recent ones)
+      members = await User.find({}, 'email firstName lastName username avatar bio country createdAt')
+        .sort({ createdAt: -1 })
+        .limit(100); // Limit to prevent overwhelming response
+    } else {
+      // Campus channel - check user is member of campus
+      const { campus, isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
+      if (!isMember) {
+        return errorResponse(res, 403, 'You must be a member of this campus to view members');
+      }
+      // List all campus members
+      members = await User.find({ _id: { $in: campus.members.map(m => m.userId) } }, 'email firstName lastName username avatar bio country createdAt');
     }
-    // List all campus members
-    const members = await User.find({ _id: { $in: campus.members.map(m => m.userId) } }, 'email firstName lastName username avatar bio country createdAt');
+    
     return successResponse(res, 200, 'Channel members listed successfully', members, 'members');
   } catch (err) {
     return errorResponse(res, 500, 'Failed to get channel members', err.message);
@@ -160,10 +227,15 @@ const getChannelMessages = async (req, res) => {
     if (!channel) {
       return errorResponse(res, 404, 'Channel not found');
     }
-    // Check user is member of campus
-    const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
-    if (!isMember) {
-      return errorResponse(res, 403, 'You must be a member of this campus to view messages');
+    // Check if it's a platform channel or campus channel
+    if (channel.isPlatformChannel) {
+      // Platform channel - no membership check required, all users can view messages
+    } else {
+      // Campus channel - check user is member of campus
+      const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
+      if (!isMember) {
+        return errorResponse(res, 403, 'You must be a member of this campus to view messages');
+      }
     }
     // If pageNo=1, mark user as in this channel and reset unread count
     if (!pageNo || parseInt(pageNo) === 1) {
@@ -242,10 +314,15 @@ const editMessage = async (req, res) => {
       return errorResponse(res, 404, 'Channel not found');
     }
 
-    // Check user is member of campus
-    const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
-    if (!isMember) {
-      return errorResponse(res, 403, 'You must be a member of this campus to edit messages');
+    // Check if it's a platform channel or campus channel
+    if (channel.isPlatformChannel) {
+      // Platform channel - no membership check required, all users can edit their own messages
+    } else {
+      // Campus channel - check user is member of campus
+      const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
+      if (!isMember) {
+        return errorResponse(res, 403, 'You must be a member of this campus to edit messages');
+      }
     }
 
     // Update message
@@ -295,10 +372,15 @@ const deleteMessage = async (req, res) => {
       return errorResponse(res, 404, 'Channel not found');
     }
 
-    // Check user is member of campus
-    const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
-    if (!isMember) {
-      return errorResponse(res, 403, 'You must be a member of this campus to delete messages');
+    // Check if it's a platform channel or campus channel
+    if (channel.isPlatformChannel) {
+      // Platform channel - no membership check required, all users can delete their own messages
+    } else {
+      // Campus channel - check user is member of campus
+      const { isMember } = await getCampusWithMembershipCheck(channel.campusId._id, userId);
+      if (!isMember) {
+        return errorResponse(res, 403, 'You must be a member of this campus to delete messages');
+      }
     }
 
     // Delete message
