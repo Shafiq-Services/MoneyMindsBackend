@@ -54,6 +54,8 @@ const ensureMoneyMindsCampusExists = async () => {
         slug: 'money-minds',
         title: 'Money Minds',
         imageUrl: '',
+        mainIconUrl: '',
+        campusIconUrl: '',
         isMoneyMindsCampus: true,
         members: [] // Keep empty for virtual campus
       });

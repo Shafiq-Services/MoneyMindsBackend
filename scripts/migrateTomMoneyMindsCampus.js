@@ -30,6 +30,8 @@ async function migrateToMoneyMindsCampus() {
         slug: 'money-minds',
         title: 'Money Minds',
         imageUrl: '',
+        mainIconUrl: '',
+        campusIconUrl: '',
         isMoneyMindsCampus: true,
         members: [] // Virtual campus with no members
       });

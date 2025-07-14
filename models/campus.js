@@ -3,7 +3,9 @@ const mongoose = require('mongoose');
 const campusSchema = new mongoose.Schema({
   slug: { type: String, required: true, unique: true },
   title: { type: String, required: true },
-  imageUrl: { type: String },
+  imageUrl: { type: String, default: '' },
+  mainIconUrl: { type: String, default: '' },
+  campusIconUrl: { type: String, default: '' },
   isMoneyMindsCampus: { type: Boolean, default: false },
   members: [{
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

@@ -9,7 +9,7 @@ const { addVideoResolutions } = require('../utils/videoResolutions');
 
 const createCampus = async (req, res) => {
   try {
-    const { slug, title, imageUrl } = req.body;
+    const { slug, title, imageUrl, mainIconUrl, campusIconUrl } = req.body;
     
     if (!slug || !title) {
       return errorResponse(res, 400, 'Slug and title are required');
@@ -23,7 +23,9 @@ const createCampus = async (req, res) => {
     const campus = await Campus.create({
       slug,
       title,
-      imageUrl,
+      imageUrl: imageUrl || '',
+      mainIconUrl: mainIconUrl || '',
+      campusIconUrl: campusIconUrl || '',
       members: []
     });
 
@@ -36,6 +38,8 @@ const createCampus = async (req, res) => {
       slug: campus.slug,
       title: campus.title,
       imageUrl: campus.imageUrl,
+      mainIconUrl: campus.mainIconUrl,
+      campusIconUrl: campus.campusIconUrl,
       members: campus.members,
       createdAt: campus.createdAt
     };
@@ -49,7 +53,7 @@ const createCampus = async (req, res) => {
 const editCampus = async (req, res) => {
   try {
     const { campusId } = req.query;
-    const { title, imageUrl } = req.body;
+    const { title, imageUrl, mainIconUrl, campusIconUrl } = req.body;
 
     if (!campusId) {
       return errorResponse(res, 400, 'Campus ID is required');
@@ -62,6 +66,8 @@ const editCampus = async (req, res) => {
 
     if (title) campus.title = title;
     if (imageUrl !== undefined) campus.imageUrl = imageUrl;
+    if (mainIconUrl !== undefined) campus.mainIconUrl = mainIconUrl;
+    if (campusIconUrl !== undefined) campus.campusIconUrl = campusIconUrl;
     
     await campus.save();
 
@@ -71,6 +77,8 @@ const editCampus = async (req, res) => {
       slug: campus.slug,
       title: campus.title,
       imageUrl: campus.imageUrl,
+      mainIconUrl: campus.mainIconUrl,
+      campusIconUrl: campus.campusIconUrl,
       members: campus.members,
       createdAt: campus.createdAt
     };
@@ -169,7 +177,7 @@ const leaveCampus = async (req, res) => {
 const listCampuses = async (req, res) => {
   try {
     const userId = req.userId;
-    const campuses = await Campus.find({}).select('slug title imageUrl members createdAt');
+    const campuses = await Campus.find({}).select('slug title imageUrl mainIconUrl campusIconUrl members createdAt');
     
     // Separate Money Minds campus from regular campuses
     let moneyMindsCampus = null;
@@ -182,6 +190,8 @@ const listCampuses = async (req, res) => {
           slug: campus.slug,
           title: campus.title,
           imageUrl: campus.imageUrl,
+          mainIconUrl: campus.mainIconUrl,
+          campusIconUrl: campus.campusIconUrl,
           memberCount: campus.members.length,
           joined: true, // Always joined for virtual campus
           createdAt: campus.createdAt
@@ -197,6 +207,8 @@ const listCampuses = async (req, res) => {
           slug: campus.slug,
           title: campus.title,
           imageUrl: campus.imageUrl,
+          mainIconUrl: campus.mainIconUrl,
+          campusIconUrl: campus.campusIconUrl,
           memberCount: campus.members.length,
           joined: isJoined,
           createdAt: campus.createdAt
@@ -223,13 +235,13 @@ const getUserCampuses = async (req, res) => {
     
     // Get Money Minds campus (virtual campus)
     const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true })
-      .select('slug title imageUrl members createdAt');
+      .select('slug title imageUrl mainIconUrl campusIconUrl members createdAt');
     
     // Find campuses where the user is a member (excluding Money Minds)
     const userCampuses = await Campus.find({
       'members.userId': userId,
       isMoneyMindsCampus: { $ne: true }
-    }).select('slug title imageUrl members createdAt');
+    }).select('slug title imageUrl mainIconUrl campusIconUrl members createdAt');
     
     // Structure response with Money Minds campus at the top
     const structuredUserCampuses = [];
@@ -241,6 +253,8 @@ const getUserCampuses = async (req, res) => {
         slug: moneyMindsCampus.slug,
         title: moneyMindsCampus.title,
         imageUrl: moneyMindsCampus.imageUrl,
+        mainIconUrl: moneyMindsCampus.mainIconUrl,
+        campusIconUrl: moneyMindsCampus.campusIconUrl,
         memberCount: moneyMindsCampus.members.length,
         createdAt: moneyMindsCampus.createdAt
       });
@@ -252,6 +266,8 @@ const getUserCampuses = async (req, res) => {
       slug: campus.slug,
       title: campus.title,
       imageUrl: campus.imageUrl,
+      mainIconUrl: campus.mainIconUrl,
+      campusIconUrl: campus.campusIconUrl,
       memberCount: campus.members.length,
       createdAt: campus.createdAt
     }));
@@ -385,6 +401,8 @@ const getCampusById = async (req, res) => {
       slug: campus.slug,
       title: campus.title,
       imageUrl: campus.imageUrl,
+      mainIconUrl: campus.mainIconUrl,
+      campusIconUrl: campus.campusIconUrl,
       memberCount: campus.members.length,
       courses: structuredCourses,
       createdAt: campus.createdAt
