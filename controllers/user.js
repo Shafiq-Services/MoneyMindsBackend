@@ -11,6 +11,7 @@ const Course = require("../models/course");
 const Book = require("../models/book");
 const mongoose = require("mongoose");
 const socketManager = require("../utils/socketManager");
+const { ensureUserInMoneyMindsCampus } = require("../utils/campusHelpers");
 
 // Helper function to format user data response consistently
 const formatUserResponse = (user) => ({
@@ -128,7 +129,7 @@ const sendOtp = async (req, res) => {
     return successResponse(
       res,
       200,
-      `OTP ${otpCode} has been sent to ${email}. It will expire in 5 minutes`
+      `OTP has been sent to ${email}. It will expire in 5 minutes`
     );
   } catch (err) {
     return errorResponse(
@@ -160,6 +161,7 @@ const verifyOtp = async (req, res) => {
     }
     await Otp.deleteMany({ email });
     const user = await User.findOne({ email });
+    
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });

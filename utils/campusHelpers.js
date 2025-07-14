@@ -1,4 +1,6 @@
 const Campus = require('../models/campus');
+const Channel = require('../models/channel');
+const ChatCategory = require('../models/chat-category');
 
 /**
  * Check if a user is a member of a campus
@@ -37,7 +39,57 @@ const getCampusWithMembershipCheck = async (campusId, userId) => {
   }
 };
 
+/**
+ * Ensure Money Minds campus and channel exist (virtual campus - no user joining)
+ * @returns {Object} - { campus, channel }
+ */
+const ensureMoneyMindsCampusExists = async () => {
+  try {
+    // Find or create Money Minds campus
+    let moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
+    
+    if (!moneyMindsCampus) {
+      // Create Money Minds campus (virtual campus with no members)
+      moneyMindsCampus = await Campus.create({
+        slug: 'money-minds',
+        title: 'Money Minds',
+        imageUrl: '',
+        isMoneyMindsCampus: true,
+        members: [] // Keep empty for virtual campus
+      });
+    }
+    
+    // Create GENERAL category if it doesn't exist
+    let generalCategory = await ChatCategory.findOne({ slug: 'GENERAL' });
+    if (!generalCategory) {
+      generalCategory = await ChatCategory.create({ slug: 'GENERAL' });
+    }
+    
+    // Find or create Money Minds channel in the Money Minds campus
+    let moneyMindsChannel = await Channel.findOne({ 
+      name: 'Money Minds',
+      campusId: moneyMindsCampus._id
+    });
+    
+    if (!moneyMindsChannel) {
+      moneyMindsChannel = await Channel.create({
+        name: 'Money Minds',
+        slug: 'money-minds',
+        campusId: moneyMindsCampus._id,
+        category: generalCategory._id,
+        isPlatformChannel: false
+      });
+    }
+    
+    return { campus: moneyMindsCampus, channel: moneyMindsChannel };
+  } catch (error) {
+    console.error('Error ensuring Money Minds campus exists:', error);
+    return { campus: null, channel: null };
+  }
+};
+
 module.exports = {
   isUserInCampus,
-  getCampusWithMembershipCheck
+  getCampusWithMembershipCheck,
+  ensureMoneyMindsCampusExists
 }; 

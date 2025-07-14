@@ -4,6 +4,7 @@ const campusSchema = new mongoose.Schema({
   slug: { type: String, required: true, unique: true },
   title: { type: String, required: true },
   imageUrl: { type: String },
+  isMoneyMindsCampus: { type: Boolean, default: false },
   members: [{
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     joinedAt: { type: Date, default: Date.now }

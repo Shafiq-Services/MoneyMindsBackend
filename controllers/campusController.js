@@ -145,6 +145,11 @@ const leaveCampus = async (req, res) => {
       return errorResponse(res, 404, 'Campus not found');
     }
 
+    // Check if this is the Money Minds campus
+    if (campus.isMoneyMindsCampus) {
+      return errorResponse(res, 403, 'You cannot leave the Money Minds campus');
+    }
+
     // Check if user is a member
     if (!isUserInCampus(campus, userId)) {
       return errorResponse(res, 400, 'You are not a member of this campus');
@@ -166,23 +171,45 @@ const listCampuses = async (req, res) => {
     const userId = req.userId;
     const campuses = await Campus.find({}).select('slug title imageUrl members createdAt');
     
-    // Structure response in organized format
-    const structuredCampuses = campuses.map(campus => {
-      // Check if current user is a member of this campus
-      const isJoined = campus.members.some(member => 
-        member.userId.toString() === userId.toString()
-      );
-      
-      return {
-        _id: campus._id,
-        slug: campus.slug,
-        title: campus.title,
-        imageUrl: campus.imageUrl,
-        memberCount: campus.members.length,
-        joined: isJoined,
-        createdAt: campus.createdAt
-      };
+    // Separate Money Minds campus from regular campuses
+    let moneyMindsCampus = null;
+    const regularCampuses = [];
+    
+    campuses.forEach(campus => {
+      if (campus.isMoneyMindsCampus) {
+        moneyMindsCampus = {
+          _id: campus._id,
+          slug: campus.slug,
+          title: campus.title,
+          imageUrl: campus.imageUrl,
+          memberCount: campus.members.length,
+          joined: true, // Always joined for virtual campus
+          createdAt: campus.createdAt
+        };
+      } else {
+        // For regular campuses, check actual membership
+        const isJoined = campus.members.some(member => 
+          member.userId.toString() === userId.toString()
+        );
+        
+        regularCampuses.push({
+          _id: campus._id,
+          slug: campus.slug,
+          title: campus.title,
+          imageUrl: campus.imageUrl,
+          memberCount: campus.members.length,
+          joined: isJoined,
+          createdAt: campus.createdAt
+        });
+      }
     });
+    
+    // Structure response with Money Minds campus at the top
+    const structuredCampuses = [];
+    if (moneyMindsCampus) {
+      structuredCampuses.push(moneyMindsCampus);
+    }
+    structuredCampuses.push(...regularCampuses);
 
     return successResponse(res, 200, 'Campuses retrieved successfully', structuredCampuses, 'campuses');
   } catch (error) {
@@ -194,13 +221,33 @@ const getUserCampuses = async (req, res) => {
   try {
     const userId = req.userId;
     
-    // Find campuses where the user is a member
+    // Get Money Minds campus (virtual campus)
+    const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true })
+      .select('slug title imageUrl members createdAt');
+    
+    // Find campuses where the user is a member (excluding Money Minds)
     const userCampuses = await Campus.find({
-      'members.userId': userId
+      'members.userId': userId,
+      isMoneyMindsCampus: { $ne: true }
     }).select('slug title imageUrl members createdAt');
     
-    // Structure response in organized format
-    const structuredUserCampuses = userCampuses.map(campus => ({
+    // Structure response with Money Minds campus at the top
+    const structuredUserCampuses = [];
+    
+    // Add Money Minds campus first
+    if (moneyMindsCampus) {
+      structuredUserCampuses.push({
+        _id: moneyMindsCampus._id,
+        slug: moneyMindsCampus.slug,
+        title: moneyMindsCampus.title,
+        imageUrl: moneyMindsCampus.imageUrl,
+        memberCount: moneyMindsCampus.members.length,
+        createdAt: moneyMindsCampus.createdAt
+      });
+    }
+    
+    // Add regular campuses
+    const regularCampuses = userCampuses.map(campus => ({
       _id: campus._id,
       slug: campus.slug,
       title: campus.title,
@@ -208,6 +255,8 @@ const getUserCampuses = async (req, res) => {
       memberCount: campus.members.length,
       createdAt: campus.createdAt
     }));
+    
+    structuredUserCampuses.push(...regularCampuses);
 
     return successResponse(res, 200, 'User campuses retrieved successfully', structuredUserCampuses, 'userCampuses');
   } catch (error) {
