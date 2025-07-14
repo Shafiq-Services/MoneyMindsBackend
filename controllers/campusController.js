@@ -3,7 +3,7 @@ const Course = require('../models/course');
 const Module = require('../models/module');
 const Lesson = require('../models/lesson');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
-const { isUserInCampus, getCampusWithMembershipCheck } = require('../utils/campusHelpers');
+const { isUserInCampus, getCampusWithMembershipCheck, ensureMoneyMindsCampusExists } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
 const { addVideoResolutions } = require('../utils/videoResolutions');
 
@@ -208,9 +208,12 @@ const getUserCampuses = async (req, res) => {
   try {
     const userId = req.userId;
     
-    // Get Money Minds campus (virtual campus)
-    const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true })
-      .select('slug title imageUrl mainIconUrl campusIconUrl members createdAt');
+    // Get existing Money Minds campus (universal virtual campus)
+    const { campus: moneyMindsCampus } = await ensureMoneyMindsCampusExists();
+    
+    if (!moneyMindsCampus) {
+      return errorResponse(res, 500, 'Failed to find Money Minds campus');
+    }
     
     // Find campuses where the user is a member (excluding Money Minds)
     const userCampuses = await Campus.find({
@@ -221,19 +224,17 @@ const getUserCampuses = async (req, res) => {
     // Structure response with Money Minds campus at the top
     const structuredUserCampuses = [];
     
-    // Add Money Minds campus first
-    if (moneyMindsCampus) {
-      structuredUserCampuses.push({
-        _id: moneyMindsCampus._id,
-        slug: moneyMindsCampus.slug,
-        title: moneyMindsCampus.title,
-        imageUrl: moneyMindsCampus.imageUrl,
-        mainIconUrl: moneyMindsCampus.mainIconUrl,
-        campusIconUrl: moneyMindsCampus.campusIconUrl,
-        memberCount: moneyMindsCampus.members.length,
-        createdAt: moneyMindsCampus.createdAt
-      });
-    }
+    // Add Money Minds campus first (ALWAYS present for ALL users)
+    structuredUserCampuses.push({
+      _id: moneyMindsCampus._id,
+      slug: moneyMindsCampus.slug,
+      title: moneyMindsCampus.title,
+      imageUrl: moneyMindsCampus.imageUrl,
+      mainIconUrl: moneyMindsCampus.mainIconUrl,
+      campusIconUrl: moneyMindsCampus.campusIconUrl,
+      memberCount: moneyMindsCampus.members.length,
+      createdAt: moneyMindsCampus.createdAt
+    });
     
     // Add regular campuses
     const regularCampuses = userCampuses.map(campus => ({
@@ -251,6 +252,7 @@ const getUserCampuses = async (req, res) => {
 
     return successResponse(res, 200, 'User campuses retrieved successfully', structuredUserCampuses, 'userCampuses');
   } catch (error) {
+    console.error('❌ [getUserCampuses] Database error:', error.message);
     return errorResponse(res, 500, 'Failed to retrieve user campuses', error.message);
   }
 };

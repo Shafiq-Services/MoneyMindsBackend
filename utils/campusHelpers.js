@@ -32,6 +32,12 @@ const getCampusWithMembershipCheck = async (campusId, userId) => {
       return { campus: null, isMember: false };
     }
     
+    // For Money Minds campus, ALL users are considered members (virtual campus)
+    if (campus.isMoneyMindsCampus) {
+      return { campus, isMember: true };
+    }
+    
+    // For regular campuses, check actual membership
     const isMember = isUserInCampus(campus, userId);
     return { campus, isMember };
   } catch (error) {
@@ -45,47 +51,28 @@ const getCampusWithMembershipCheck = async (campusId, userId) => {
  */
 const ensureMoneyMindsCampusExists = async () => {
   try {
-    // Find or create Money Minds campus
-    let moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
+    // Find existing Money Minds campus (ID: 68754c79df9d61f7dd467835)
+    const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
     
     if (!moneyMindsCampus) {
-      // Create Money Minds campus (virtual campus with no members)
-      moneyMindsCampus = await Campus.create({
-        slug: 'money-minds',
-        title: 'Money Minds',
-        imageUrl: '',
-        mainIconUrl: '',
-        campusIconUrl: '',
-        isMoneyMindsCampus: true,
-        members: [] // Keep empty for virtual campus
-      });
+      console.error('Money Minds campus not found in database');
+      return { campus: null, channel: null };
     }
     
-    // Create GENERAL category if it doesn't exist
-    let generalCategory = await ChatCategory.findOne({ slug: 'GENERAL' });
-    if (!generalCategory) {
-      generalCategory = await ChatCategory.create({ slug: 'GENERAL' });
-    }
-    
-    // Find or create Money Minds channel in the Money Minds campus
-    let moneyMindsChannel = await Channel.findOne({ 
+    // Find existing Money Minds channel (ID: 6874bab8390e3d32955cfc74)
+    const moneyMindsChannel = await Channel.findOne({ 
       name: 'Money Minds',
       campusId: moneyMindsCampus._id
     });
     
     if (!moneyMindsChannel) {
-      moneyMindsChannel = await Channel.create({
-        name: 'Money Minds',
-        slug: 'money-minds',
-        campusId: moneyMindsCampus._id,
-        category: generalCategory._id,
-        isPlatformChannel: false
-      });
+      console.error('Money Minds channel not found in database');
+      return { campus: moneyMindsCampus, channel: null };
     }
     
     return { campus: moneyMindsCampus, channel: moneyMindsChannel };
   } catch (error) {
-    console.error('Error ensuring Money Minds campus exists:', error);
+    console.error('Error finding Money Minds campus:', error);
     return { campus: null, channel: null };
   }
 };
