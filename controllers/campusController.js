@@ -177,51 +177,26 @@ const leaveCampus = async (req, res) => {
 const listCampuses = async (req, res) => {
   try {
     const userId = req.userId;
-    const campuses = await Campus.find({}).select('slug title imageUrl mainIconUrl campusIconUrl members createdAt');
+    // Only get regular campuses (exclude Money Minds campus from general listing)
+    const campuses = await Campus.find({ isMoneyMindsCampus: { $ne: true } }).select('slug title imageUrl mainIconUrl campusIconUrl members createdAt');
     
-    // Separate Money Minds campus from regular campuses
-    let moneyMindsCampus = null;
-    const regularCampuses = [];
-    
-    campuses.forEach(campus => {
-      if (campus.isMoneyMindsCampus) {
-        moneyMindsCampus = {
-          _id: campus._id,
-          slug: campus.slug,
-          title: campus.title,
-          imageUrl: campus.imageUrl,
-          mainIconUrl: campus.mainIconUrl,
-          campusIconUrl: campus.campusIconUrl,
-          memberCount: campus.members.length,
-          joined: true, // Always joined for virtual campus
-          createdAt: campus.createdAt
-        };
-      } else {
-        // For regular campuses, check actual membership
-        const isJoined = campus.members.some(member => 
-          member.userId.toString() === userId.toString()
-        );
-        
-        regularCampuses.push({
-          _id: campus._id,
-          slug: campus.slug,
-          title: campus.title,
-          imageUrl: campus.imageUrl,
-          mainIconUrl: campus.mainIconUrl,
-          campusIconUrl: campus.campusIconUrl,
-          memberCount: campus.members.length,
-          joined: isJoined,
-          createdAt: campus.createdAt
-        });
-      }
+    const structuredCampuses = campuses.map(campus => {
+      const isJoined = campus.members.some(member => 
+        member.userId.toString() === userId.toString()
+      );
+      
+      return {
+        _id: campus._id,
+        slug: campus.slug,
+        title: campus.title,
+        imageUrl: campus.imageUrl,
+        mainIconUrl: campus.mainIconUrl,
+        campusIconUrl: campus.campusIconUrl,
+        memberCount: campus.members.length,
+        joined: isJoined,
+        createdAt: campus.createdAt
+      };
     });
-    
-    // Structure response with Money Minds campus at the top
-    const structuredCampuses = [];
-    if (moneyMindsCampus) {
-      structuredCampuses.push(moneyMindsCampus);
-    }
-    structuredCampuses.push(...regularCampuses);
 
     return successResponse(res, 200, 'Campuses retrieved successfully', structuredCampuses, 'campuses');
   } catch (error) {

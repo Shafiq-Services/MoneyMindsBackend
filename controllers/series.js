@@ -60,6 +60,7 @@ const getRandomSeries = async (req, res) => {
                     videoUrl: '$videoUrl',
                     posterUrl: '$posterUrl',
                     resolutions: '$resolutions',
+                    length: '$length',
                     createdAt: '$createdAt'
                   }
                 }

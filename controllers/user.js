@@ -360,6 +360,7 @@ const getUserProfile = async (req, res) => {
             videoUrl: video.videoUrl,
             posterUrl: video.posterUrl,
             resolutions: video.resolutions || [],
+            length: video.length || 0,
             createdAt: video.createdAt,
             watchProgress: progress.percentage,
             watchSeconds: progress.seconds,

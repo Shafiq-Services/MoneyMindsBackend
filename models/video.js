@@ -11,6 +11,7 @@ const videoSchema = new mongoose.Schema({
     originalVideoUrl: String,
     resolutions: [String],
     posterUrl: String,
+    length: { type: Number, default: 0 }, // Video length in seconds
     createdAt: { type: Date, default: Date.now }
   });
   
