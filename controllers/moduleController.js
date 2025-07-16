@@ -5,6 +5,7 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
 const { addVideoResolutions } = require('../utils/videoResolutions');
+const { addProgressToItem } = require('../utils/progressHelper');
 
 const createModule = async (req, res) => {
   try {
@@ -142,8 +143,7 @@ const listModulesByCourse = async (req, res) => {
       campusId: course.campusId,
       name: module.name,
       lessons: module.lessons.map(lesson => {
-        const progress = socketManager.videoProgress[userId]?.[lesson._id] || null;
-        return addVideoResolutions({
+        const lessonWithResolutions = addVideoResolutions({
           _id: lesson._id,
           moduleId: lesson.moduleId,
           courseId: course._id,
@@ -152,11 +152,11 @@ const listModulesByCourse = async (req, res) => {
           videoUrl: lesson.videoUrl,
           notes: lesson.notes || '',
           resolutions: lesson.resolutions || [],
-          createdAt: lesson.createdAt,
-          watchedProgress: progress ? progress.percentage : 0,
-          watchSeconds: progress ? progress.seconds : 0,
-          totalDuration: progress ? progress.totalDuration : 0
+          length: lesson.length || 0,
+          createdAt: lesson.createdAt
         });
+        
+        return addProgressToItem(userId, lessonWithResolutions);
       }),
       createdAt: module.createdAt
     }));

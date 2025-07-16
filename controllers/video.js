@@ -5,62 +5,10 @@ const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const { fetchResolutionsFromVideoUrl } = require('../utils/videoResolutions');
-const { getVideoResolution } = require('../utils/ffmpegTranscoder');
-const https = require('https');
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const { calculateVideoDuration } = require('../utils/videoDuration');
+const { addProgressToItem } = require('../utils/progressHelper');
 
-// Function to calculate video duration from video URL
-const calculateVideoDuration = async (videoUrl) => {
-  try {
-    // Download video to temp file
-    const tempPath = path.join(__dirname, '../temp', `temp_${Date.now()}.mp4`);
-    
-    // Ensure temp directory exists
-    const tempDir = path.dirname(tempPath);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
 
-    // Download video file
-    const downloadVideo = (url, filePath) => {
-      return new Promise((resolve, reject) => {
-        const protocol = url.startsWith('https') ? https : http;
-        const file = fs.createWriteStream(filePath);
-        
-        protocol.get(url, (response) => {
-          if (response.statusCode !== 200) {
-            reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`));
-            return;
-          }
-          
-          response.pipe(file);
-          file.on('finish', () => {
-            file.close();
-            resolve();
-          });
-        }).on('error', reject);
-      });
-    };
-
-    await downloadVideo(videoUrl, tempPath);
-    
-    // Read video file as buffer
-    const videoBuffer = fs.readFileSync(tempPath);
-    
-    // Calculate duration using existing ffmpeg utility
-    const { duration } = await getVideoResolution(videoBuffer);
-    
-    // Clean up temp file
-    fs.unlinkSync(tempPath);
-    
-    return Math.round(duration); // Return duration in seconds, rounded
-  } catch (error) {
-    console.error('Error calculating video duration:', error);
-    return 0; // Return 0 if calculation fails
-  }
-};
 
 // POST /api/video
 const postVideo = async (req, res) => {
@@ -136,7 +84,7 @@ const postVideo = async (req, res) => {
 
     // Order the response fields as requested
     const videoObj = video.toObject();
-    const orderedVideo = {
+    const videoWithProgress = addProgressToItem(req.userId, {
       _id: videoObj._id,
       title: videoObj.title,
       description: videoObj.description,
@@ -146,19 +94,23 @@ const postVideo = async (req, res) => {
       length: videoDuration,
       createdAt: videoObj.createdAt,
       resolutions: videoObj.resolutions,
-      watchedProgress: (() => {
-        const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : null;
-        return progress ? progress.percentage : 0;
-      })(),
-      watchSeconds: (() => {
-        const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : null;
-        return progress ? progress.seconds : 0;
-      })(),
-      totalDuration: (() => {
-        const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][videoObj._id] ? socketManager.videoProgress[req.userId][videoObj._id] : null;
-        return progress ? progress.totalDuration : 0;
-      })(),
       ...Object.fromEntries(Object.entries(videoObj).filter(([k]) => !['_id','title','description','type','videoUrl','posterUrl','length','createdAt','resolutions'].includes(k)))
+    });
+
+    const orderedVideo = {
+      _id: videoWithProgress._id,
+      title: videoWithProgress.title,
+      description: videoWithProgress.description,
+      type: videoWithProgress.type,
+      videoUrl: videoWithProgress.videoUrl,
+      posterUrl: videoWithProgress.posterUrl,
+      length: videoWithProgress.length,
+      createdAt: videoWithProgress.createdAt,
+      resolutions: videoWithProgress.resolutions,
+      watchedProgress: videoWithProgress.watchedProgress,
+      watchSeconds: videoWithProgress.watchSeconds,
+      totalDuration: videoWithProgress.totalDuration,
+      ...Object.fromEntries(Object.entries(videoWithProgress).filter(([k]) => !['_id','title','description','type','videoUrl','posterUrl','length','createdAt','resolutions','watchedProgress','watchSeconds','totalDuration'].includes(k)))
     };
 
     return res.status(201).json({ status: true, message: 'Video added successfully.', video: orderedVideo });

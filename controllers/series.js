@@ -4,6 +4,7 @@ const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
+const { addProgressToItem } = require('../utils/progressHelper');
 
 // POST /api/series
 // Body: { title, description, posterUrl }
@@ -95,13 +96,7 @@ const getRandomSeries = async (req, res) => {
       seasons: seriesItem.seasons.map(season => ({
         ...season,
         episodes: season.episodes.map(episode => {
-          const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][episode._id] ? socketManager.videoProgress[req.userId][episode._id] : null;
-          return {
-            ...episode,
-            watchProgress: progress ? progress.percentage : 0,
-            watchSeconds: progress ? progress.seconds : 0,
-            totalDuration: progress ? progress.totalDuration : 0
-          };
+          return addProgressToItem(req.userId, episode);
         })
       }))
     }));

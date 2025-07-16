@@ -187,71 +187,89 @@ class SocketManager {
       // Video progress event
       socket.on("video-progress", async (data) => {
         if (data && data.videoId && typeof data.progress === "number") {
+          const userId = socket.userId; // Make sure this is defined
           if (!this.videoProgress[userId]) this.videoProgress[userId] = {};
-
+      
           let progressPercentage = 0;
           let totalDuration = 0;
-
-          // Check if we already have cached duration for this video
+      
+          // Get existing progress from memory
           const existingProgress = this.videoProgress[userId][data.videoId];
-          if (existingProgress && existingProgress.totalDuration > 0) {
-            // Use cached duration for efficiency
-            totalDuration = existingProgress.totalDuration;
-            progressPercentage = Math.round((data.progress / totalDuration) * 100);
-            
-            // IMPORTANT: Only allow forward progress - never go backward
-            if (data.progress <= existingProgress.seconds) {
-              console.log(`Progress not updated: ${data.progress}s <= existing ${existingProgress.seconds}s for video ${data.videoId}`);
-              return; // Don't update if new progress is less than or equal to existing
-            }
+      
+                  // Fetch video from all schemas that contain video URLs
+        let video = await Video.findById(data.videoId);
+        
+        if (video) {
+          totalDuration = video.length || 0;
+        } else {
+          // Check Lesson schema
+          const Lesson = require('../models/lesson');
+          const lesson = await Lesson.findById(data.videoId);
+          if (lesson) {
+            totalDuration = lesson.length || 0;
           } else {
-            // Get video details to calculate duration (only first time)
-            const video = await Video.findById(data.videoId);
-            totalDuration = await this.getVideoDuration(video);
-            progressPercentage = Math.round((data.progress / totalDuration) * 100);
+            // Check ChatMessage schema for video messages
+            const Message = require('../models/chat-message');
+            const message = await Message.findById(data.videoId);
+            if (message && message.mediaType === 'video') {
+              totalDuration = message.length || 0;
+            } else {
+              return;
+            }
           }
-
-          // Ensure percentage is between 0 and 100
+        }
+      
+          // Calculate progress %
+          progressPercentage = totalDuration > 0
+            ? Math.round((data.progress / totalDuration) * 100)
+            : 0;
+      
+          // Prevent backward progress
+          if (existingProgress && data.progress <= existingProgress.seconds) {
+            return;
+          }
+      
+          // Clamp between 0%–100%
           progressPercentage = Math.max(0, Math.min(100, progressPercentage));
-
-          // Store both seconds and percentage with timestamp
+      
           const progressData = {
             seconds: data.progress,
             percentage: progressPercentage,
             totalDuration: totalDuration,
             lastUpdated: Date.now(),
           };
-          
-          console.log(`Progress updated: ${data.progress}s (${progressPercentage}%) for video ${data.videoId}`);
-          
-          // Update in-memory cache for fast access
+      
+      
+          // Save in memory
           this.videoProgress[userId][data.videoId] = progressData;
-          
-          // Save to MongoDB (upsert) - only update if progress is forward
+      
+          // Save to DB (upsert)
           try {
             await WatchProgress.findOneAndUpdate(
-              { 
-                userId, 
+              {
+                userId,
                 videoId: data.videoId,
                 $or: [
-                  { seconds: { $lt: data.progress } }, // Only update if new progress is greater
-                  { seconds: { $exists: false } } // Or if no progress exists yet
-                ]
+                  { seconds: { $lt: data.progress } },
+                  { seconds: { $exists: false } },
+                ],
               },
               {
                 seconds: data.progress,
                 percentage: progressPercentage,
                 totalDuration: totalDuration,
-                lastUpdated: new Date()
+                lastUpdated: new Date(),
               },
               { upsert: true, new: true }
             );
           } catch (dbError) {
-            console.error('Failed to save watch progress to database:', dbError.message);
-            // Continue with in-memory storage even if DB fails
+            console.error('[ERROR] Failed to save watch progress to DB:', dbError.message);
           }
+        } else {
+          console.warn('[WARN] Invalid data received in video-progress event:', data);
         }
-      });
+      });;
+      ;
     });
     return this.io;
   }
@@ -434,10 +452,20 @@ class SocketManager {
     return this.videoProgress[userId][videoId];
   }
 
-  // Get video duration efficiently with caching
+  // Get video duration from stored length field
   async getVideoDuration(video) {
-    if (!video || !video.videoUrl) {
-      return 1800; // 30 minutes fallback
+    if (!video) {
+      return 0;
+    }
+    
+    // Use stored length if available
+    if (video.length && video.length > 0) {
+      return video.length;
+    }
+    
+    // Fallback for videos without length (legacy)
+    if (!video.videoUrl) {
+      return 0;
     }
 
     try {
@@ -478,14 +506,14 @@ class SocketManager {
             resolve(metadata.format.duration);
           } else {
             console.log(`Could not get duration for video ${video._id}, using fallback`);
-            resolve(1800); // 30 minutes fallback
+            resolve(0); // Return 0 instead of fallback
           }
         });
       });
 
     } catch (error) {
       console.log(`Error getting video duration for ${video._id}:`, error.message);
-      return 1800; // 30 minutes fallback
+      return 0; // Return 0 instead of fallback
     }
   }
 

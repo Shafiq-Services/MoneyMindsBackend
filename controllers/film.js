@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const { addVideoResolutionsToArray } = require('../utils/videoResolutions');
+const { addProgressToItem } = require('../utils/progressHelper');
 
 const getRandomFilms = async (req, res) => {
   try {
@@ -23,13 +24,7 @@ const getRandomFilms = async (req, res) => {
     
     // Add watch progress and resolutions to each film
     const filmsWithProgress = films.map(film => {
-      const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][film._id] ? socketManager.videoProgress[req.userId][film._id] : null;
-      return {
-        ...film,
-        watchProgress: progress ? progress.percentage : 0,
-        watchSeconds: progress ? progress.seconds : 0,
-        totalDuration: progress ? progress.totalDuration : 0
-      };
+      return addProgressToItem(req.userId, film);
     });
 
     // Add resolutions to all films efficiently
@@ -110,13 +105,7 @@ const getPopularFilms = async (req, res) => {
     
     // Add current user's watch progress and resolutions to each film
     const filmsWithProgress = popularFilms.map(film => {
-      const progress = socketManager.videoProgress[req.userId] && socketManager.videoProgress[req.userId][film._id] ? socketManager.videoProgress[req.userId][film._id] : null;
-      return {
-        ...film,
-        watchProgress: progress ? progress.percentage : 0,
-        watchSeconds: progress ? progress.seconds : 0,
-        totalDuration: progress ? progress.totalDuration : 0
-      };
+      return addProgressToItem(req.userId, film);
     });
 
     // Add resolutions to all films efficiently

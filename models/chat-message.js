@@ -6,6 +6,7 @@ const messageSchema = new mongoose.Schema({
   text: { type: String, default: '' },
   mediaUrl: { type: String },
   mediaType: { type: String, enum: ['image', 'video'], default: 'image' },
+  length: { type: Number, default: 0 }, // Video length in seconds (for video messages)
   createdAt: { type: Date, default: Date.now }
 });
 

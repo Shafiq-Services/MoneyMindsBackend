@@ -12,6 +12,7 @@ const Book = require("../models/book");
 const mongoose = require("mongoose");
 const socketManager = require("../utils/socketManager");
 const { ensureUserInMoneyMindsCampus } = require("../utils/campusHelpers");
+const { addProgressToItem } = require("../utils/progressHelper");
 
 // Helper function to format user data response consistently
 const formatUserResponse = (user) => ({
@@ -352,7 +353,7 @@ const getUserProfile = async (req, res) => {
         const [mostRecentVideoId, progress] = sortedProgress[0];
         const video = await Video.findById(mostRecentVideoId);
         if (video) {
-          recentVideo = {
+          const videoWithProgress = addProgressToItem(userId, {
             _id: video._id,
             title: video.title,
             description: video.description,
@@ -362,10 +363,23 @@ const getUserProfile = async (req, res) => {
             resolutions: video.resolutions || [],
             length: video.length || 0,
             createdAt: video.createdAt,
-            watchProgress: progress.percentage,
-            watchSeconds: progress.seconds,
-            totalDuration: progress.totalDuration,
             contentType: video.type === 'film' ? 'film' : 'episode'
+          });
+          
+          recentVideo = {
+            _id: videoWithProgress._id,
+            title: videoWithProgress.title,
+            description: videoWithProgress.description,
+            type: videoWithProgress.type,
+            videoUrl: videoWithProgress.videoUrl,
+            posterUrl: videoWithProgress.posterUrl,
+            resolutions: videoWithProgress.resolutions,
+            length: videoWithProgress.length,
+            createdAt: videoWithProgress.createdAt,
+            watchProgress: videoWithProgress.watchedProgress,
+            watchSeconds: videoWithProgress.watchSeconds,
+            totalDuration: videoWithProgress.totalDuration,
+            contentType: videoWithProgress.contentType
           };
         }
       }

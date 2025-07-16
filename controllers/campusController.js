@@ -6,6 +6,7 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { isUserInCampus, getCampusWithMembershipCheck, ensureMoneyMindsCampusExists } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
 const { addVideoResolutions } = require('../utils/videoResolutions');
+const { addProgressToItem } = require('../utils/progressHelper');
 
 const createCampus = async (req, res) => {
   try {
@@ -305,7 +306,7 @@ const getCampusById = async (req, res) => {
         const moduleLessons = course.lessons
           .filter(lesson => lesson.moduleId.toString() === module._id.toString())
           .map(lesson => {
-            return addVideoResolutions({
+            const lessonWithResolutions = addVideoResolutions({
               _id: lesson._id,
               moduleId: lesson.moduleId,
               courseId: course._id,
@@ -314,20 +315,11 @@ const getCampusById = async (req, res) => {
               videoUrl: lesson.videoUrl,
               notes: lesson.notes || '',
               resolutions: lesson.resolutions || [],
-              createdAt: lesson.createdAt,
-              watchedProgress: (() => {
-                const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-                return progress ? progress.percentage : 0;
-              })(),
-              watchSeconds: (() => {
-                const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-                return progress ? progress.seconds : 0;
-              })(),
-              totalDuration: (() => {
-                const progress = socketManager.videoProgress[userId] && socketManager.videoProgress[userId][lesson._id] ? socketManager.videoProgress[userId][lesson._id] : null;
-                return progress ? progress.totalDuration : 0;
-              })()
+              length: lesson.length || 0,
+              createdAt: lesson.createdAt
             });
+            
+            return addProgressToItem(userId, lessonWithResolutions);
           });
 
         return {

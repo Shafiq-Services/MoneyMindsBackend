@@ -19,7 +19,7 @@ exports.createSubscription = async (req, res) => {
   try {
     // Authenticated user only
     const userId = req.userId;
-    const { paymentMethod, plan } = req.body;
+    const { paymentMethod, plan, billingInfo } = req.body;
     
     if (!paymentMethod) return errorResponse(res, 400, 'Payment method is required');
     if (!plan || !['monthly', 'yearly'].includes(plan)) {
@@ -41,12 +41,29 @@ exports.createSubscription = async (req, res) => {
       const customer = await stripe.customers.create({
         email: user.email,
         name: user.firstName + ' ' + user.lastName,
+        phone: user.phone,
         payment_method: paymentMethod,
         invoice_settings: { default_payment_method: paymentMethod },
       });
       stripeCustomerId = customer.id;
       user.stripeCustomerId = stripeCustomerId;
       await user.save();
+    }
+
+    // Update customer with billing info if provided
+    if (billingInfo) {
+      await stripe.customers.update(stripeCustomerId, {
+        name: billingInfo.name || user.firstName + ' ' + user.lastName,
+        phone: billingInfo.phone || user.phone,
+        address: {
+          line1: billingInfo.address?.line1,
+          line2: billingInfo.address?.line2,
+          city: billingInfo.address?.city,
+          state: billingInfo.address?.state,
+          postal_code: billingInfo.address?.postal_code,
+          country: billingInfo.address?.country
+        }
+      });
     }
 
     // Create the subscription in Stripe
@@ -83,10 +100,13 @@ exports.createSubscription = async (req, res) => {
     }
 
     // Return clientSecret for Stripe.js
-    return successResponse(res, 201, 'Subscription created successfully', {
+    return successResponse(res, 201, 'Subscription created successfully. Complete payment using the clientSecret.', {
       subscriptionId: subscription.id,
       clientSecret: subscription.latest_invoice.payment_intent.client_secret,
-      plan: plan
+      paymentIntentId: subscription.latest_invoice.payment_intent.id,
+      plan: plan,
+      status: 'incomplete',
+      nextStep: 'Complete payment using Stripe.js confirmCardPayment with the clientSecret'
     }, 'subscription');
   } catch (error) {
     console.error('Stripe Error:', error);
@@ -388,6 +408,76 @@ exports.handleStripeWebhook = async (req, res) => {
 };
 
 /**
+ * Confirm payment completion and update subscription status
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.confirmPayment = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { subscriptionId, paymentIntentId } = req.body;
+
+    if (!subscriptionId) {
+      return errorResponse(res, 400, 'Subscription ID is required');
+    }
+
+    // Find the subscription in our database
+    const subscription = await Subscription.findOne({
+      userId: userId,
+      'metadata.stripeSubscriptionId': subscriptionId
+    });
+
+    if (!subscription) {
+      return errorResponse(res, 404, 'Subscription not found');
+    }
+
+    // Retrieve the payment intent from Stripe
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    
+    if (paymentIntent.status === 'succeeded') {
+      // Update subscription status to active
+      subscription.status = 'active';
+      await subscription.save();
+
+      // Get user details for email
+      const user = await User.findById(userId);
+      
+      // Ensure customer has basic billing info
+      const customer = await stripe.customers.retrieve(user.stripeCustomerId);
+      if (!customer.name || !customer.phone) {
+        await stripe.customers.update(user.stripeCustomerId, {
+          name: customer.name || user.firstName + ' ' + user.lastName,
+          phone: customer.phone || user.phone
+        });
+      }
+      
+      // Send confirmation email
+      try {
+        await sendEmail(
+          user.email,
+          'Welcome to Money Minds - Payment Confirmed!',
+          `Hello ${user.firstName},\n\nGreat news! Your payment has been processed successfully and your Money Minds ${subscription.plan} subscription is now active.\n\nYou now have full access to:\n• All premium courses and content\n• Exclusive member benefits\n• 24/7 support\n\nYour next billing date is: ${new Date(subscription.currentPeriodEnd).toLocaleDateString()}\n\nWelcome to the Money Minds community!\n\nBest regards,\nThe Money Minds Team`
+        );
+      } catch (emailError) {
+        console.error('Failed to send confirmation email:', emailError);
+      }
+
+      return successResponse(res, 200, 'Payment confirmed and subscription activated', {
+        subscriptionId: subscriptionId,
+        status: 'active'
+      }, 'paymentConfirmation');
+    } else {
+      return errorResponse(res, 400, 'Payment not completed successfully', {
+        status: paymentIntent.status
+      });
+    }
+  } catch (error) {
+    console.error('Confirm Payment Error:', error);
+    return errorResponse(res, 500, 'Failed to confirm payment', error.message);
+  }
+};
+
+/**
  * Check for subscription expiry warnings and send notifications
  * This function can be called periodically (e.g., via cron job)
  */
@@ -552,6 +642,21 @@ exports.deletePaymentMethod = async (req, res) => {
 exports.getBillingInfo = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
+    
+    if (!user.stripeCustomerId) {
+      return successResponse(res, 200, 'No billing info available - customer not created yet', {
+        _id: null,
+        name: null,
+        address: null,
+        city: null,
+        state: null,
+        zip: null,
+        country: null,
+        phone: null,
+        createdAt: null
+      }, 'billingInfo');
+    }
+    
     const customer = await stripe.customers.retrieve(user.stripeCustomerId);
     const billingInfo = {
       _id: customer.id,
@@ -566,6 +671,7 @@ exports.getBillingInfo = async (req, res) => {
     };
     return successResponse(res, 200, 'Billing info retrieved', billingInfo, 'billingInfo');
   } catch (err) {
+    console.error('Get Billing Info Error:', err);
     return errorResponse(res, 500, 'Failed to get billing info', err.message);
   }
 };

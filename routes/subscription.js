@@ -9,6 +9,7 @@ router.get('/plan', authMiddleware, subscriptionController.getSubscriptionPlan);
 
 // Subscription
 router.post('/buy-plan', authMiddleware, subscriptionController.createSubscription);
+router.post('/confirm-payment', authMiddleware, subscriptionController.confirmPayment);
 router.post('/cancel', authMiddleware, subscriptionController.cancelSubscription);
 router.get('/status', authMiddleware, subscriptionController.getSubscriptionStatus);
 router.get('/current', authMiddleware, subscriptionController.getCurrentSubscription);

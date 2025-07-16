@@ -6,7 +6,9 @@
     "scripts": {
         "dev": "nodemon --legacy-watch server.js",
         "start": "node server.js",
-        "test": "jest --runInBand"
+        "test": "jest --runInBand",
+            "update-video-lengths": "node scripts/addVideoLengthsToDatabase.js",
+    "fix-video-durations": "node scripts/addVideoLengthsToDatabase.js"
     },
     "keywords": [],
     "author": "",
