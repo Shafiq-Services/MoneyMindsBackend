@@ -5,12 +5,31 @@ const socketManager = require('./socketManager');
  * @param {string} userId - User ID
  * @param {string} videoId - Video/Lesson ID
  * @param {number} videoLength - Stored video length in seconds
+ * @param {boolean} hasVideo - Whether the content has a video (for lessons)
  * @returns {object} Progress data
  */
-const calculateWatchProgress = (userId, videoId, videoLength = 0) => {
+const calculateWatchProgress = (userId, videoId, videoLength = 0, hasVideo = true) => {
   // Get stored progress from socket manager
   const progress = socketManager.videoProgress[userId]?.[videoId];
   
+  // For text-only lessons (no video)
+  if (!hasVideo) {
+    if (progress && progress.percentage === 100) {
+      return {
+        watchedProgress: 100,
+        watchSeconds: 0,
+        totalDuration: 0
+      };
+    } else {
+      return {
+        watchedProgress: 0,
+        watchSeconds: 0,
+        totalDuration: 0
+      };
+    }
+  }
+  
+  // For video content
   if (!progress) {
     return {
       watchedProgress: 0,
@@ -41,7 +60,9 @@ const calculateWatchProgress = (userId, videoId, videoLength = 0) => {
  */
 const calculateWatchProgressForItems = (userId, items) => {
   return items.map(item => {
-    const progress = calculateWatchProgress(userId, item._id.toString(), item.length || 0);
+    // Check if this is a lesson without video (text-only lesson)
+    const hasVideo = item.videoUrl && item.videoUrl.length > 0;
+    const progress = calculateWatchProgress(userId, item._id.toString(), item.length || 0, hasVideo);
     
     return {
       ...item,
@@ -59,7 +80,9 @@ const calculateWatchProgressForItems = (userId, items) => {
  * @returns {object} Item with progress data added
  */
 const addProgressToItem = (userId, item) => {
-  const progress = calculateWatchProgress(userId, item._id.toString(), item.length || 0);
+  // Check if this is a lesson without video (text-only lesson)
+  const hasVideo = item.videoUrl && item.videoUrl.length > 0;
+  const progress = calculateWatchProgress(userId, item._id.toString(), item.length || 0, hasVideo);
   
   return {
     ...item,

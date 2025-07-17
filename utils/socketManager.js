@@ -178,6 +178,90 @@ class SocketManager {
         }
       });
 
+      // Lesson opening event for text-only lessons
+      socket.on("lesson-opened", async (data) => {
+        console.log('📚 [Socket Manager] Lesson opened event received:', { data, userId });
+        
+        if (data && data.lessonId) {
+          try {
+            // Find the lesson
+            const Lesson = require('../models/lesson');
+            console.log('🔍 [Socket Manager] Looking for lesson:', data.lessonId);
+            const lesson = await Lesson.findById(data.lessonId).maxTimeMS(5000); // 5 second timeout
+            if (!lesson) {
+              console.log('❌ [Socket Manager] Lesson not found:', data.lessonId);
+              socket.emit('lesson-opened-error', {
+                lessonId: data.lessonId,
+                error: 'Lesson not found'
+              });
+              return;
+            }
+            console.log('✅ [Socket Manager] Lesson found:', lesson.name);
+
+            // Check if lesson has no video (text-only lesson)
+            if (!lesson.videoUrl) {
+              console.log('📄 [Socket Manager] Text-only lesson detected, marking as completed...');
+              
+              // Create or update watch progress for text-only lesson
+              await WatchProgress.findOneAndUpdate(
+                {
+                  userId: userId,
+                  videoId: data.lessonId
+                },
+                {
+                  contentType: 'lesson',
+                  seconds: 0,
+                  percentage: 100,
+                  totalDuration: 0,
+                  isCompleted: true,
+                  lastUpdated: new Date()
+                },
+                { upsert: true, new: true }
+              );
+              
+              console.log(`✅ [Socket Manager] Text-only lesson ${lesson.name} marked as 100% complete for user ${userId}`);
+              
+              // Update in-memory progress cache
+              if (!this.videoProgress[userId]) this.videoProgress[userId] = {};
+              this.videoProgress[userId][data.lessonId] = {
+                seconds: 0,
+                percentage: 100,
+                totalDuration: 0,
+                lastUpdated: Date.now()
+              };
+              
+              // Emit confirmation to user
+              socket.emit('lesson-opened-confirmed', {
+                lessonId: data.lessonId,
+                lessonName: lesson.name,
+                progress: 100,
+                completed: true
+              });
+              
+            } else {
+              console.log('🎬 [Socket Manager] Lesson has video, not marking as completed automatically');
+              
+              // Emit confirmation for video lessons (they need to watch the video)
+              socket.emit('lesson-opened-confirmed', {
+                lessonId: data.lessonId,
+                lessonName: lesson.name,
+                hasVideo: true,
+                progress: this.getUserVideoProgress(userId, data.lessonId)?.percentage || 0
+              });
+            }
+            
+          } catch (error) {
+            console.error('❌ [Socket Manager] Error handling lesson-opened event:', error.message);
+            socket.emit('lesson-opened-error', {
+              lessonId: data.lessonId,
+              error: 'Failed to process lesson opening'
+            });
+          }
+        } else {
+          console.log('❌ [Socket Manager] Invalid lesson-opened event data:', data);
+        }
+      });
+
       socket.on("disconnect", () => {
         // Optionally clean up userContext
         if (this.userContext[userId]) {
@@ -245,6 +329,24 @@ class SocketManager {
       
           // Save to DB (upsert)
           try {
+            // Determine content type based on which schema the video was found in
+            let contentType = 'video';
+            if (video) {
+              contentType = 'video';
+            } else {
+              const Lesson = require('../models/lesson');
+              const lesson = await Lesson.findById(data.videoId);
+              if (lesson) {
+                contentType = 'lesson';
+              } else {
+                const Message = require('../models/chat-message');
+                const message = await Message.findById(data.videoId);
+                if (message && message.mediaType === 'video') {
+                  contentType = 'chat-message';
+                }
+              }
+            }
+
             await WatchProgress.findOneAndUpdate(
               {
                 userId,
@@ -255,9 +357,11 @@ class SocketManager {
                 ],
               },
               {
+                contentType: contentType,
                 seconds: data.progress,
                 percentage: progressPercentage,
                 totalDuration: totalDuration,
+                isCompleted: progressPercentage >= 95, // Mark as completed if 95% or more
                 lastUpdated: new Date(),
               },
               { upsert: true, new: true }
@@ -269,7 +373,6 @@ class SocketManager {
           console.warn('[WARN] Invalid data received in video-progress event:', data);
         }
       });;
-      ;
     });
     return this.io;
   }

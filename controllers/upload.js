@@ -39,8 +39,23 @@ const upload = multer({
       }
     } else if (req.path.includes('/video')) {
       // Video upload validation
-      const allowedVideoTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'];
-      if (allowedVideoTypes.includes(file.mimetype)) {
+      const allowedVideoTypes = [
+        'video/mp4', 
+        'video/avi', 
+        'video/mov', 
+        'video/wmv', 
+        'video/flv', 
+        'video/webm', 
+        'video/mkv',
+        'video/x-matroska',  // Common MKV MIME type
+        'application/x-matroska'  // Alternative MKV MIME type
+      ];
+      
+      // Also check file extension as fallback for MKV files
+      const fileExtension = path.extname(file.originalname).toLowerCase();
+      const isMkvByExtension = fileExtension === '.mkv';
+      
+      if (allowedVideoTypes.includes(file.mimetype) || isMkvByExtension) {
         cb(null, true);
       } else {
         cb(new Error('Only video files (MP4, AVI, MOV, WMV, FLV, WebM, MKV) are allowed'), false);
@@ -148,13 +163,31 @@ const unifiedUpload = async (req, res, uploadType) => {
     // File type validation
     const allowedTypes = {
       'image': ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
-      'video': ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/mkv'],
+      'video': [
+        'video/mp4', 
+        'video/avi', 
+        'video/mov', 
+        'video/wmv', 
+        'video/flv', 
+        'video/webm', 
+        'video/mkv',
+        'video/x-matroska',  // Common MKV MIME type
+        'application/x-matroska'  // Alternative MKV MIME type
+      ],
       'file': [] // Allow any file type
     };
     
-    if (uploadType !== 'file' && !allowedTypes[uploadType].includes(req.file.mimetype)) {
+    // Special handling for MKV files by extension
+    const fileExtension = path.extname(req.file.originalname).toLowerCase();
+    const isMkvByExtension = fileExtension === '.mkv';
+    
+    if (uploadType !== 'file' && !allowedTypes[uploadType].includes(req.file.mimetype) && !(uploadType === 'video' && isMkvByExtension)) {
+      console.log(`🚫 [Upload Validation] File rejected: ${req.file.originalname}`);
+      console.log(`🚫 [Upload Validation] Detected MIME type: ${req.file.mimetype}`);
+      console.log(`🚫 [Upload Validation] File extension: ${fileExtension}`);
+      console.log(`🚫 [Upload Validation] Upload type: ${uploadType}`);
       cleanupTempFile(req.file.path);
-      return errorResponse(res, 400, `Invalid ${uploadType} file type`);
+      return errorResponse(res, 400, `Invalid ${uploadType} file type. Detected MIME type: ${req.file.mimetype}`);
     }
 
     // Generate file path

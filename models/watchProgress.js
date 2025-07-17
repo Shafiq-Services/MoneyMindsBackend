@@ -8,8 +8,12 @@ const watchProgressSchema = new mongoose.Schema({
   },
   videoId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Video',
     required: true
+  },
+  contentType: {
+    type: String,
+    enum: ['video', 'lesson', 'chat-message'],
+    default: 'video'
   },
   seconds: {
     type: Number,
@@ -27,6 +31,10 @@ const watchProgressSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  isCompleted: {
+    type: Boolean,
+    default: false
+  },
   lastUpdated: {
     type: Date,
     default: Date.now
@@ -35,11 +43,12 @@ const watchProgressSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound index to ensure one progress record per user per video
+// Compound index to ensure one progress record per user per content item
 watchProgressSchema.index({ userId: 1, videoId: 1 }, { unique: true });
 
 // Index for efficient queries
 watchProgressSchema.index({ userId: 1, lastUpdated: -1 });
 watchProgressSchema.index({ videoId: 1 });
+watchProgressSchema.index({ contentType: 1 });
 
 module.exports = mongoose.model('WatchProgress', watchProgressSchema); 

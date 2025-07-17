@@ -10,10 +10,15 @@ const { addProgressToItem } = require('../utils/progressHelper');
 
 const createLesson = async (req, res) => {
   try {
-    const { moduleId, name, videoUrl, notes } = req.body;
+    const { moduleId, name, videoUrl, text, notes } = req.body;
 
-    if (!moduleId || !name || !videoUrl) {
-      return errorResponse(res, 400, 'Module ID, name, and video URL are required');
+    if (!moduleId || !name) {
+      return errorResponse(res, 400, 'Module ID and name are required');
+    }
+
+    // Validate that either videoUrl or text is provided
+    if (!videoUrl && !text) {
+      return errorResponse(res, 400, 'Either videoUrl or text must be provided for a lesson');
     }
 
     // Verify module exists and get course info (admin operation - no membership check required)
@@ -28,20 +33,27 @@ const createLesson = async (req, res) => {
       return errorResponse(res, 404, 'Module not found');
     }
 
-    // Fetch resolutions from video URL and store them
-    console.log('🎬 Fetching resolutions for lesson:', name);
-    const resolutions = await fetchResolutionsFromVideoUrl(videoUrl);
-    console.log('📊 Resolutions found:', resolutions);
+    let resolutions = [];
+    let videoDuration = 0;
 
-    // Calculate video duration automatically
-    console.log('📏 Calculating video duration for lesson:', name);
-    const videoDuration = await calculateVideoDuration(videoUrl);
-    console.log('⏱️ Video duration calculated:', videoDuration, 'seconds');
+    // Only process video-related data if videoUrl is provided
+    if (videoUrl) {
+      // Fetch resolutions from video URL and store them
+      console.log('🎬 Fetching resolutions for lesson:', name);
+      resolutions = await fetchResolutionsFromVideoUrl(videoUrl);
+      console.log('📊 Resolutions found:', resolutions);
+
+      // Calculate video duration automatically
+      console.log('📏 Calculating video duration for lesson:', name);
+      videoDuration = await calculateVideoDuration(videoUrl);
+      console.log('⏱️ Video duration calculated:', videoDuration, 'seconds');
+    }
 
     const lesson = await Lesson.create({
       moduleId,
       name,
-      videoUrl,
+      videoUrl: videoUrl || '',
+      text: text || '',
       notes: notes || '',
       resolutions: resolutions,
       length: videoDuration
@@ -63,6 +75,7 @@ const createLesson = async (req, res) => {
       campusId: module.courseId.campusId._id,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      text: lesson.text,
       notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
@@ -80,7 +93,7 @@ const createLesson = async (req, res) => {
 const editLesson = async (req, res) => {
   try {
     const { lessonId } = req.query;
-    const { name, videoUrl, notes } = req.body;
+    const { name, videoUrl, text, notes } = req.body;
 
     if (!lessonId) {
       return errorResponse(res, 400, 'Lesson ID is required');
@@ -99,19 +112,34 @@ const editLesson = async (req, res) => {
     // Admin operation - no membership check required
     if (name) lesson.name = name;
     if (notes !== undefined) lesson.notes = notes || ''; // Ensure notes is always a string, never null
-    if (videoUrl) {
-      lesson.videoUrl = videoUrl;
-      // If video URL is changed, fetch new resolutions and calculate duration
-      console.log('🎬 Video URL changed, fetching new resolutions for lesson:', lesson.name);
-      const resolutions = await fetchResolutionsFromVideoUrl(videoUrl);
-      console.log('📊 New resolutions found:', resolutions);
-      lesson.resolutions = resolutions;
+    if (text !== undefined) lesson.text = text || ''; // Handle text field
+
+    // Handle videoUrl changes
+    if (videoUrl !== undefined) {
+      lesson.videoUrl = videoUrl || '';
       
-      // Calculate new video duration
-      console.log('📏 Recalculating video duration for lesson:', lesson.name);
-      const videoDuration = await calculateVideoDuration(videoUrl);
-      console.log('⏱️ New video duration calculated:', videoDuration, 'seconds');
-      lesson.length = videoDuration;
+      if (videoUrl) {
+        // If video URL is provided, fetch new resolutions and calculate duration
+        console.log('🎬 Video URL changed, fetching new resolutions for lesson:', lesson.name);
+        const resolutions = await fetchResolutionsFromVideoUrl(videoUrl);
+        console.log('📊 New resolutions found:', resolutions);
+        lesson.resolutions = resolutions;
+        
+        // Calculate new video duration
+        console.log('📏 Recalculating video duration for lesson:', lesson.name);
+        const videoDuration = await calculateVideoDuration(videoUrl);
+        console.log('⏱️ New video duration calculated:', videoDuration, 'seconds');
+        lesson.length = videoDuration;
+      } else {
+        // If video URL is removed, clear resolutions and length
+        lesson.resolutions = [];
+        lesson.length = 0;
+      }
+    }
+
+    // Validate that either videoUrl or text is provided after all updates
+    if (!lesson.videoUrl && !lesson.text) {
+      return errorResponse(res, 400, 'Either videoUrl or text must be provided for a lesson');
     }
     
     await lesson.save();
@@ -124,6 +152,7 @@ const editLesson = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      text: lesson.text,
       notes: lesson.notes || '', // Ensure notes is always a string
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
@@ -194,6 +223,7 @@ const listLessonsByModule = async (req, res) => {
         campusId: module.courseId.campusId,
         name: lesson.name,
         videoUrl: lesson.videoUrl,
+        text: lesson.text || '', // Include text field
         notes: lesson.notes || '', // Ensure notes is always a string
         resolutions: lesson.resolutions || [],
         length: lesson.length || 0,
@@ -247,6 +277,7 @@ const getLessonById = async (req, res) => {
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
       videoUrl: lesson.videoUrl,
+      text: lesson.text || '', // Include text field
       notes: lesson.notes || '', // Ensure notes is always a string
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
