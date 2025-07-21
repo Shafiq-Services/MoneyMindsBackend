@@ -13,6 +13,7 @@ const {
   modifyBio,
   modifyCountry,
   getUserProfile,
+  editUserProfile
 } = require('../controllers/user');
 const authMiddleware = require('../middlewares/auth');
 
@@ -26,6 +27,7 @@ router.use(authMiddleware);
 router.get('/username-available', checkUsernameAvailability);
 router.get('/avatars', getAvatars);
 router.get('/profile', getUserProfile);
+router.put('/edit-profile', editUserProfile);
 router.put('/set-username-avatar', setUsernameAndAvatar);
 router.put('/modify-avatar', modifyAvatar);
 router.put('/modify-username', modifyUsername);

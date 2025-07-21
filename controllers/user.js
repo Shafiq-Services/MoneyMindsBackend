@@ -514,6 +514,32 @@ const getUserProfile = async (req, res) => {
   }
 };
 
+const editUserProfile = async (req, res) => {
+  try {
+    const { firstName, lastName, phone, email, country } = req.body;
+    const user = await User.findById(req.userId);
+    if (!user) return errorResponse(res, 404, "User account not found");
+    if(!firstName) return errorResponse(res, 400, "First name is required");
+    if(!lastName) return errorResponse(res, 400, "Last name is required");
+    if(!phone) return errorResponse(res, 400, "Phone number is required");
+    if(!email) return errorResponse(res, 400, "Email is required");
+    if(!country) return errorResponse(res, 400, "Country is required");
+    
+    user.firstName = firstName;
+    user.lastName = lastName;
+    user.phone = phone;
+    user.email = email;
+    user.country = country;
+    
+    await user.save();
+    return successResponse(res, 200, "User profile updated successfully", {
+      user: formatUserResponse(user)
+    });
+  } catch (err) {
+    return errorResponse(res, 500, "Failed to edit user profile", err.message);
+  }
+};
+
 module.exports = {
   signUp,
   sendOtp,
@@ -526,4 +552,5 @@ module.exports = {
   modifyBio,
   modifyCountry,
   getUserProfile,
+  editUserProfile
 };
