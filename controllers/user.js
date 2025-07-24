@@ -516,7 +516,7 @@ const getUserProfile = async (req, res) => {
 
 const editUserProfile = async (req, res) => {
   try {
-    const { firstName, lastName, phone, email, country } = req.body;
+    const { firstName, lastName, phone, email, country, bio } = req.body;
     const user = await User.findById(req.userId);
     if (!user) return errorResponse(res, 404, "User account not found");
     if(!firstName) return errorResponse(res, 400, "First name is required");
@@ -524,12 +524,14 @@ const editUserProfile = async (req, res) => {
     if(!phone) return errorResponse(res, 400, "Phone number is required");
     if(!email) return errorResponse(res, 400, "Email is required");
     if(!country) return errorResponse(res, 400, "Country is required");
+    if(!bio) return errorResponse(res, 400, "Bio is required");
     
     user.firstName = firstName;
     user.lastName = lastName;
     user.phone = phone;
     user.email = email;
     user.country = country;
+    user.bio = bio || '';
     
     await user.save();
     return successResponse(res, 200, "User profile updated successfully", {

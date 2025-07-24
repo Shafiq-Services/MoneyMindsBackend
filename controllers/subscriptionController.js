@@ -19,7 +19,11 @@ exports.createSubscription = async (req, res) => {
   try {
     // Authenticated user only
     const userId = req.userId;
-    const { paymentMethod, plan, billingInfo } = req.body;
+    const { 
+      paymentMethod, 
+      plan, 
+      billingInfo
+    } = req.body;
     
     if (!paymentMethod) return errorResponse(res, 400, 'Payment method is required');
     if (!plan || !['monthly', 'yearly'].includes(plan)) {
@@ -50,20 +54,23 @@ exports.createSubscription = async (req, res) => {
       await user.save();
     }
 
-    // Update customer with billing info if provided
-    if (billingInfo) {
-      await stripe.customers.update(stripeCustomerId, {
-        name: billingInfo.name || user.firstName + ' ' + user.lastName,
-        phone: billingInfo.phone || user.phone,
-        address: {
-          line1: billingInfo.address?.line1,
-          line2: billingInfo.address?.line2,
-          city: billingInfo.address?.city,
-          state: billingInfo.address?.state,
-          postal_code: billingInfo.address?.postal_code,
-          country: billingInfo.address?.country
-        }
-      });
+    // Prepare billing address from billingInfo
+    const billingAddress = {
+      name: billingInfo?.name || user.firstName + ' ' + user.lastName,
+      phone: billingInfo?.phone || user.phone,
+      address: {
+        line1: billingInfo?.address?.line1,
+        line2: billingInfo?.address?.line2,
+        city: billingInfo?.address?.city,
+        state: billingInfo?.address?.state,
+        postal_code: billingInfo?.address?.postal_code,
+        country: billingInfo?.address?.country
+      }
+    };
+
+    // Update customer with billing info if any billing fields are provided
+    if (billingAddress.name || billingAddress.phone || billingAddress.address.line1) {
+      await stripe.customers.update(stripeCustomerId, billingAddress);
     }
 
     // Create the subscription in Stripe
@@ -543,6 +550,159 @@ exports.checkSubscriptionExpiryWarnings = async () => {
   }
 };
 
+/**
+ * Send reminder email for incomplete payments (15 minutes after signup)
+ * This should be called by a scheduled job
+ */
+exports.sendIncompletePaymentReminder = async () => {
+  try {
+    console.log('📧 [Incomplete Payment] Checking for incomplete payments...');
+    
+    // Find subscriptions that are incomplete, created more than 15 minutes ago, and haven't received reminder yet
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const incompleteSubscriptions = await Subscription.find({
+      status: 'incomplete',
+      createdAt: { $lte: fifteenMinutesAgo },
+      incompletePaymentReminderSent: false
+    });
+
+    console.log(`📧 [Incomplete Payment] Found ${incompleteSubscriptions.length} incomplete subscriptions that need reminders`);
+
+    for (const subscription of incompleteSubscriptions) {
+      try {
+        const user = await User.findById(subscription.userId);
+        if (!user) {
+          console.log(`❌ [Incomplete Payment] User not found for subscription ${subscription._id}`);
+          continue;
+        }
+
+        await sendEmail(
+          user.email,
+          'Complete Your Money Minds Subscription',
+          `Hello ${user.firstName},\n\nWe noticed you started the subscription process but haven't completed your payment yet.\n\nTo activate your Money Minds ${subscription.plan} subscription and gain access to all premium content, please complete your payment within the next 24 hours.\n\nIf you're having trouble with the payment process:\n• Check that your payment method is valid\n• Ensure you have sufficient funds\n• Contact our support team for assistance\n\nYour subscription will be automatically canceled if payment is not completed within 24 hours.\n\nWe're excited to have you join the Money Minds community!\n\nBest regards,\nThe Money Minds Team`
+        );
+
+        // Mark that the reminder has been sent to prevent duplicate emails
+        subscription.incompletePaymentReminderSent = true;
+        await subscription.save();
+
+        console.log(`✅ [Incomplete Payment] Reminder sent to ${user.email}`);
+      } catch (error) {
+        console.error(`❌ [Incomplete Payment] Error sending reminder to subscription ${subscription._id}:`, error.message);
+      }
+    }
+
+    console.log('✅ [Incomplete Payment] Finished sending incomplete payment reminders');
+  } catch (error) {
+    console.error('❌ [Incomplete Payment] Error in sendIncompletePaymentReminder:', error.message);
+  }
+};
+
+/**
+ * Send follow-up emails after cancellation (3, 7, 14 days)
+ * This should be called by a scheduled job
+ */
+exports.sendPostCancellationFollowUps = async () => {
+  try {
+    console.log('📧 [Post Cancellation] Checking for post-cancellation follow-ups...');
+    
+    const now = new Date();
+    
+    // Find canceled subscriptions that need follow-up emails
+    const canceledSubscriptions = await Subscription.find({
+      status: 'canceled'
+    });
+
+    for (const subscription of canceledSubscriptions) {
+      try {
+        const user = await User.findById(subscription.userId);
+        if (!user) continue;
+
+        const daysSinceCancellation = Math.floor((now - subscription.updatedAt) / (1000 * 60 * 60 * 24));
+        
+        let shouldSendEmail = false;
+        let emailSubject = '';
+        let emailMessage = '';
+
+        // Check if it's time for follow-up emails
+        if (daysSinceCancellation === 3) {
+          shouldSendEmail = true;
+          emailSubject = 'We Miss You Already - Money Minds';
+          emailMessage = `Hello ${user.firstName},\n\nIt's been 3 days since you canceled your Money Minds subscription, and we already miss having you as part of our community!\n\nWe understand that circumstances change, but we want to make sure you know that:\n• Your account and learning progress are still safe\n• You can reactivate your subscription anytime\n• We're here to help if you had any issues\n\nIf you'd like to continue your learning journey, simply log in and reactivate your subscription.\n\nWe hope to see you back soon!\n\nBest regards,\nThe Money Minds Team`;
+        } else if (daysSinceCancellation === 7) {
+          shouldSendEmail = true;
+          emailSubject = 'Your Learning Journey Awaits - Money Minds';
+          emailMessage = `Hello ${user.firstName},\n\nA week has passed since you left Money Minds, and we wanted to check in!\n\nWe hope you're doing well and that your learning journey continues to be successful. Remember that:\n• Your account is still active\n• All your progress is saved\n• You can return anytime\n\nIf you're ready to continue your financial education journey, we'd love to have you back!\n\nBest regards,\nThe Money Minds Team`;
+        } else if (daysSinceCancellation === 14) {
+          shouldSendEmail = true;
+          emailSubject = 'Final Goodbye - Money Minds';
+          emailMessage = `Hello ${user.firstName},\n\nIt's been 14 days since you canceled your Money Minds subscription.\n\nWe want to thank you for being part of our community and hope that your time with us was valuable and educational.\n\nIf you ever decide to continue your financial education journey, we'll be here with open arms.\n\nWishing you continued success in all your endeavors!\n\nBest regards,\nThe Money Minds Team`;
+        }
+
+        if (shouldSendEmail) {
+          await sendEmail(user.email, emailSubject, emailMessage);
+          console.log(`✅ [Post Cancellation] Follow-up email sent to ${user.email} (${daysSinceCancellation} days)`);
+        }
+
+      } catch (error) {
+        console.error(`❌ [Post Cancellation] Error processing subscription ${subscription._id}:`, error.message);
+      }
+    }
+
+    console.log('✅ [Post Cancellation] Finished sending follow-up emails');
+  } catch (error) {
+    console.error('❌ [Post Cancellation] Error in sendPostCancellationFollowUps:', error.message);
+  }
+};
+
+/**
+ * Send email 7 days after subscription expired
+ * This should be called by a scheduled job
+ */
+exports.sendPostExpiryEmail = async () => {
+  try {
+    console.log('📧 [Post Expiry] Checking for expired subscriptions...');
+    
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    // Find subscriptions that expired exactly 7 days ago
+    const expiredSubscriptions = await Subscription.find({
+      status: 'canceled',
+      currentPeriodEnd: {
+        $gte: new Date(sevenDaysAgo.getTime() - 24 * 60 * 60 * 1000), // 6 days ago
+        $lte: sevenDaysAgo // 7 days ago
+      }
+    });
+
+    console.log(`📧 [Post Expiry] Found ${expiredSubscriptions.length} subscriptions that expired 7 days ago`);
+
+    for (const subscription of expiredSubscriptions) {
+      try {
+        const user = await User.findById(subscription.userId);
+        if (!user) {
+          console.log(`❌ [Post Expiry] User not found for subscription ${subscription._id}`);
+          continue;
+        }
+
+        await sendEmail(
+          user.email,
+          'Your Subscription Has Expired - Money Minds',
+          `Hello ${user.firstName},\n\nYour Money Minds ${subscription.plan} subscription expired 7 days ago.\n\nWe want to let you know that:\n• Your account is still active\n• All your learning progress is saved\n• You can reactivate your subscription anytime\n• Your data will be preserved for 30 days\n\nIf you'd like to continue your financial education journey, simply log in and reactivate your subscription.\n\nWe hope to see you back soon!\n\nBest regards,\nThe Money Minds Team`
+        );
+
+        console.log(`✅ [Post Expiry] Email sent to ${user.email}`);
+      } catch (error) {
+        console.error(`❌ [Post Expiry] Error sending email to subscription ${subscription._id}:`, error.message);
+      }
+    }
+
+    console.log('✅ [Post Expiry] Finished sending post-expiry emails');
+  } catch (error) {
+    console.error('❌ [Post Expiry] Error in sendPostExpiryEmail:', error.message);
+  }
+};
+
 exports.getCurrentSubscription = async (req, res) => {
   try {
     const userId = req.userId;
@@ -647,7 +807,8 @@ exports.getBillingInfo = async (req, res) => {
       return successResponse(res, 200, 'No billing info available - customer not created yet', {
         _id: null,
         name: null,
-        address: null,
+        addressLine1: null,
+        addressLine2: null,
         city: null,
         state: null,
         zip: null,
@@ -661,7 +822,8 @@ exports.getBillingInfo = async (req, res) => {
     const billingInfo = {
       _id: customer.id,
       name: customer.name,
-      address: customer.address,
+      addressLine1: customer.address?.line1,
+      addressLine2: customer.address?.line2,
       city: customer.address?.city,
       state: customer.address?.state,
       zip: customer.address?.postal_code,
@@ -679,9 +841,52 @@ exports.getBillingInfo = async (req, res) => {
 exports.editBillingInfo = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
-    const update = req.body;
-    const customer = await stripe.customers.update(user.stripeCustomerId, update);
-    return successResponse(res, 200, 'Billing info updated', customer, 'billingInfo');
+    const { 
+      name, 
+      phone, 
+      addressLine1, 
+      addressLine2, 
+      city, 
+      state, 
+      zip, 
+      country 
+    } = req.body;
+
+    // Prepare update object for Stripe
+    const updateData = {};
+    
+    if (name) updateData.name = name;
+    if (phone) updateData.phone = phone;
+    
+    // Only update address if at least one address field is provided
+    if (addressLine1 || addressLine2 || city || state || zip || country) {
+      updateData.address = {
+        line1: addressLine1,
+        line2: addressLine2,
+        city: city,
+        state: state,
+        postal_code: zip,
+        country: country
+      };
+    }
+
+    const customer = await stripe.customers.update(user.stripeCustomerId, updateData);
+    
+    // Format response according to node-api-structure
+    const billingInfo = {
+      _id: customer.id,
+      name: customer.name,
+      addressLine1: customer.address?.line1,
+      addressLine2: customer.address?.line2,
+      city: customer.address?.city,
+      state: customer.address?.state,
+      zip: customer.address?.postal_code,
+      country: customer.address?.country,
+      phone: customer.phone,
+      createdAt: customer.created
+    };
+    
+    return successResponse(res, 200, 'Billing info updated successfully', billingInfo, 'billingInfo');
   } catch (err) {
     return errorResponse(res, 500, 'Failed to update billing info', err.message);
   }
@@ -691,9 +896,26 @@ exports.deleteBillingInfo = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     const customer = await stripe.customers.update(user.stripeCustomerId, {
-      address: null, name: null, phone: null
+      address: null, 
+      name: null, 
+      phone: null
     });
-    return successResponse(res, 200, 'Billing info deleted', customer, 'billingInfo');
+    
+    // Format response according to node-api-structure
+    const billingInfo = {
+      _id: customer.id,
+      name: null,
+      addressLine1: null,
+      addressLine2: null,
+      city: null,
+      state: null,
+      zip: null,
+      country: null,
+      phone: null,
+      createdAt: customer.created
+    };
+    
+    return successResponse(res, 200, 'Billing info deleted successfully', billingInfo, 'billingInfo');
   } catch (err) {
     return errorResponse(res, 500, 'Failed to delete billing info', err.message);
   }
@@ -837,3 +1059,100 @@ exports.getSubscriptionPlan = async (req, res) => {
     return errorResponse(res, 500, 'Failed to fetch subscription plan', error.message);
   }
 }; 
+
+/**
+ * Edit subscription plan price (Admin Only)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.editSubscriptionPlanPrice = async (req, res) => {
+  try {
+    const { priceId, newAmount, newCurrency, prorationBehavior = 'none' } = req.body;
+
+    if (!priceId) return errorResponse(res, 400, 'Price ID is required');
+
+    // Parse combined or separate amount/currency
+    let amount, currency;
+    if (typeof newAmount === 'string' && newAmount.includes(' ')) {
+      const [num, curr] = newAmount.trim().split(' ');
+      if (isNaN(Number(num))) return errorResponse(res, 400, 'Invalid amount format');
+      amount = Number(num);
+      currency = curr.toLowerCase();
+    } else {
+      if (!newAmount || isNaN(Number(newAmount)) || Number(newAmount) <= 0)
+        return errorResponse(res, 400, 'Valid new amount is required');
+      if (!newCurrency || !['usd','eur','gbp'].includes(newCurrency.toLowerCase()))
+        return errorResponse(res, 400, 'Valid currency is required (usd, eur, gbp)');
+      amount = Number(newAmount);
+      currency = newCurrency.toLowerCase();
+    }
+    if (amount <= 0) return errorResponse(res, 400, 'Amount must be greater than 0');
+    if (!['usd','eur','gbp'].includes(currency))
+      return errorResponse(res, 400, 'Valid currency is required');
+
+    // Retrieve existing price
+    const existingPrice = await stripe.prices.retrieve(priceId);
+    if (!existingPrice) return errorResponse(res, 404, 'Price not found');
+
+    // Create new price
+    const newPrice = await stripe.prices.create({
+      unit_amount: Math.round(amount * 100),
+      currency,
+      recurring: {
+        interval: existingPrice.recurring.interval,
+        interval_count: existingPrice.recurring.interval_count,
+        trial_period_days: existingPrice.recurring.trial_period_days
+      },
+      product: existingPrice.product,
+      active: true
+    });
+
+    // Archive old price
+    await stripe.prices.update(priceId, { active: false });
+
+    // Migrate existing subscriptions
+    const subs = await stripe.subscriptions.list({ price: priceId, status: 'active' });
+    for (const sub of subs.data) {
+      const item = sub.items.data.find(i => i.price.id === priceId);
+      if (item) {
+        await stripe.subscriptions.update(sub.id, {
+          items: [{
+            id: item.id,
+            price: newPrice.id,
+          }],
+          proration_behavior: prorationBehavior,
+        });
+      }
+    }
+
+    // Retrieve product metadata for response
+    const product = await stripe.products.retrieve(existingPrice.product);
+    const updatedPlan = {
+      _id: newPrice.id,
+      productId: product.id,
+      name: product.name,
+      description: product.description,
+      amount: newPrice.unit_amount,
+      currency: newPrice.currency,
+      interval: newPrice.recurring.interval,
+      intervalCount: newPrice.recurring.interval_count,
+      trialPeriodDays: newPrice.recurring.trial_period_days,
+      formattedAmount: (newPrice.unit_amount / 100).toFixed(2),
+      formattedInterval: newPrice.recurring.interval === 'month' ? 'Monthly' : 'Yearly',
+      metadata: product.metadata || {},
+      images: product.images || [],
+      createdAt: new Date(newPrice.created * 1000),
+      updatedAt: new Date(newPrice.updated * 1000),
+      oldPriceId: priceId
+    };
+
+    console.log(`✅ [Admin] Migrated ${subs.data.length} subscription(s) to new price ${newPrice.id}`);
+    return successResponse(res, 200, 'Subscription plan price updated and migrated', updatedPlan, 'subscriptionPlan');
+
+  } catch (error) {
+    console.error('❌ [Admin] Error updating subscription plan price:', error.message);
+    if (error.type === 'StripeInvalidRequestError')
+      return errorResponse(res, 400, 'Invalid price ID or parameters', error.message);
+    return errorResponse(res, 500, 'Failed to update subscription plan price', error.message);
+  }
+};

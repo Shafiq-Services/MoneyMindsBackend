@@ -1,5 +1,6 @@
 const Contact = require('../models/contact');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
+const sendEmail = require('../utils/sendEmail');
 
 /**
  * @description Submit Contact Form
@@ -30,6 +31,29 @@ const submitContact = async (req, res) => {
       fileUrl,
       message: message || ''
     });
+
+    // Send confirmation email to user
+    try {
+      await sendEmail(
+        email,
+        'Contact Form Submitted - Money Minds',
+        `Hello ${firstName},\n\nThank you for contacting Money Minds!\n\nWe have received your message and will get back to you as soon as possible.\n\nYour message details:\n• Subject: ${description}\n• Message: ${message || 'No additional message provided'}\n\nIf you have any urgent questions, please don't hesitate to reach out to our support team.\n\nBest regards,\nThe Money Minds Team`
+      );
+    } catch (emailError) {
+      console.error('Failed to send contact confirmation email:', emailError);
+    }
+
+    // Send notification email to admin (you can customize the admin email)
+    // const adminEmail = process.env.ADMIN_EMAIL || 'admin@moneymindsportal.com';
+    // try {
+    //   await sendEmail(
+    //     adminEmail,
+    //     'New Contact Form Submission - Money Minds',
+    //     `A new contact form has been submitted:\n\n• Name: ${firstName} ${lastName}\n• Email: ${email}\n• Phone: ${phone}\n• Subject: ${description}\n• Message: ${message || 'No additional message provided'}\n• File URL: ${fileUrl || 'No file attached'}\n• Submitted: ${new Date().toLocaleString()}\n\nPlease respond to this inquiry as soon as possible.`
+    //   );
+    // } catch (adminEmailError) {
+    //   console.error('Failed to send admin notification email:', adminEmailError);
+    // }
 
     // Structure response according to node-api-structure
     const responseData = {

@@ -20,7 +20,8 @@ const subscriptionSchema = new mongoose.Schema({
     },
     currentPeriodEnd: { type: Date, required: true },
     recurring: { type: Boolean, default: true },
-    metadata: mongoose.Schema.Types.Mixed
+    metadata: mongoose.Schema.Types.Mixed,
+    incompletePaymentReminderSent: { type: Boolean, default: false }
   }, { timestamps: true });
   
 module.exports = mongoose.model('Subscription', subscriptionSchema);

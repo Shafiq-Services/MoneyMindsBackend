@@ -27,4 +27,7 @@ router.delete('/billing-info/delete', authMiddleware, subscriptionController.del
 
 // The webhook route is now handled in server.js to accommodate the raw body parser.
 
+// Admin Routes
+router.put('/admin/edit-price', authMiddleware, subscriptionController.editSubscriptionPlanPrice);
+
 module.exports = router;
