@@ -195,10 +195,9 @@ const getChannelMessages = async (req, res) => {
       }
     }
     
-    // If pageNo=1, mark user as in this channel and reset unread count
-    if (!pageNo || parseInt(pageNo) === 1) {
-      socketManager.markInChannel(userId, channelId);
-    }
+    // Always mark user as in this channel and reset unread count when fetching messages
+    socketManager.markInChannel(userId, channelId);
+    
     // Paginate messages, newest first
     const { results: messages, pagination } = await paginateQuery(
       Message,

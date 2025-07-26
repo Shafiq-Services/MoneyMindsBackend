@@ -9,6 +9,8 @@ const User = require("../models/user");
 const Video = require("../models/video");
 const WatchProgress = require("../models/watchProgress");
 const Book = require("../models/book");
+const Notification = require("../models/notification");
+const UserNotificationRead = require("../models/userNotificationRead");
 
 //Events
 const { handleUserLike } = require("../events/likeEvents");
@@ -91,6 +93,194 @@ class SocketManager {
         if (this.userContext[userId]) {
           this.userContext[userId].inList = false;
           this.userContext[userId].activeChannelId = null;
+        }
+      });
+
+      // Mark notification as read event
+      socket.on("mark-notification-read", async (data) => {
+        if (data && data.notificationId) {
+          try {
+            // First check if it's a broadcast notification
+            const notification = await Notification.findById(data.notificationId);
+            
+            if (!notification) {
+              socket.emit("notification-marked-read", {
+                notificationId: data.notificationId,
+                success: false,
+                error: "Notification not found"
+              });
+              return;
+            }
+
+            if (notification.isBroadcastToAll) {
+              // Handle broadcast notification read status
+              await UserNotificationRead.findOneAndUpdate(
+                {
+                  userId: userId,
+                  notificationId: data.notificationId
+                },
+                {
+                  userId: userId,
+                  notificationId: data.notificationId,
+                  readAt: new Date()
+                },
+                { upsert: true, new: true }
+              );
+
+              socket.emit("notification-marked-read", {
+                notificationId: data.notificationId,
+                success: true,
+                isBroadcast: true
+              });
+              console.log(`✅ [Socket Manager] Broadcast notification ${data.notificationId} marked as read for user ${userId}`);
+            } else {
+              // Handle regular user-specific notification
+              const result = await Notification.findOneAndUpdate(
+                { 
+                  _id: data.notificationId,
+                  userId: userId,
+                  isRead: false
+                },
+                { 
+                  isRead: true, 
+                  readAt: new Date() 
+                },
+                { new: true }
+              );
+
+              if (result) {
+                socket.emit("notification-marked-read", {
+                  notificationId: data.notificationId,
+                  success: true,
+                  isBroadcast: false
+                });
+                console.log(`✅ [Socket Manager] Notification ${data.notificationId} marked as read for user ${userId}`);
+              } else {
+                socket.emit("notification-marked-read", {
+                  notificationId: data.notificationId,
+                  success: false,
+                  error: "Notification not found, already read, or not yours"
+                });
+              }
+            }
+          } catch (error) {
+            console.error("❌ [Socket Manager] Error marking notification as read:", error.message);
+            socket.emit("notification-marked-read", {
+              notificationId: data.notificationId,
+              success: false,
+              error: "Failed to mark notification as read"
+            });
+          }
+        }
+      });
+
+      // Mark all notifications as read event
+      socket.on("mark-all-notifications-read", async () => {
+        try {
+          // Mark user-specific notifications as read
+          const userSpecificResult = await Notification.updateMany(
+            { 
+              userId: userId, 
+              isRead: false,
+              isBroadcastToAll: { $ne: true }
+            },
+            { 
+              isRead: true, 
+              readAt: new Date() 
+            }
+          );
+
+          // Mark broadcast notifications as read
+          const broadcastNotifications = await Notification.find({
+            isBroadcastToAll: true
+          }).select('_id');
+
+          const broadcastIds = broadcastNotifications.map(n => n._id);
+          
+          let broadcastResult = { modifiedCount: 0 };
+          if (broadcastIds.length > 0) {
+            // Get already read broadcast notifications
+            const alreadyRead = await UserNotificationRead.find({
+              userId: userId,
+              notificationId: { $in: broadcastIds }
+            }).select('notificationId');
+
+            const alreadyReadIds = alreadyRead.map(r => r.notificationId.toString());
+            const unreadBroadcastIds = broadcastIds.filter(id => !alreadyReadIds.includes(id.toString()));
+
+            if (unreadBroadcastIds.length > 0) {
+              const readRecords = unreadBroadcastIds.map(notificationId => ({
+                userId: userId,
+                notificationId: notificationId,
+                readAt: new Date()
+              }));
+
+              await UserNotificationRead.insertMany(readRecords);
+              broadcastResult.modifiedCount = unreadBroadcastIds.length;
+            }
+          }
+
+          const totalModified = userSpecificResult.modifiedCount + broadcastResult.modifiedCount;
+
+          socket.emit("all-notifications-marked-read", {
+            success: true,
+            modifiedCount: totalModified,
+            userSpecific: userSpecificResult.modifiedCount,
+            broadcast: broadcastResult.modifiedCount
+          });
+          console.log(`✅ [Socket Manager] Marked ${totalModified} notifications as read for user ${userId} (${userSpecificResult.modifiedCount} user-specific, ${broadcastResult.modifiedCount} broadcast)`);
+        } catch (error) {
+          console.error("❌ [Socket Manager] Error marking all notifications as read:", error.message);
+          socket.emit("all-notifications-marked-read", {
+            success: false,
+            error: "Failed to mark all notifications as read"
+          });
+        }
+      });
+
+      // Get notification unread count event
+      socket.on("get-notification-unread-count", async () => {
+        try {
+          // Count user-specific unread notifications
+          const userSpecificUnread = await Notification.countDocuments({
+            userId: userId,
+            isRead: false,
+            isBroadcastToAll: { $ne: true }
+          });
+
+          // Count unread broadcast notifications
+          const broadcastNotifications = await Notification.find({
+            isBroadcastToAll: true
+          }).select('_id');
+
+          const broadcastIds = broadcastNotifications.map(n => n._id);
+          let unreadBroadcastCount = 0;
+
+          if (broadcastIds.length > 0) {
+            const readBroadcasts = await UserNotificationRead.find({
+              userId: userId,
+              notificationId: { $in: broadcastIds }
+            }).select('notificationId');
+
+            const readBroadcastIds = readBroadcasts.map(r => r.notificationId.toString());
+            unreadBroadcastCount = broadcastIds.filter(id => !readBroadcastIds.includes(id.toString())).length;
+          }
+
+          const totalUnreadCount = userSpecificUnread + unreadBroadcastCount;
+
+          socket.emit("notification-unread-count", {
+            success: true,
+            unreadCount: totalUnreadCount,
+            userSpecific: userSpecificUnread,
+            broadcast: unreadBroadcastCount
+          });
+          console.log(`📊 [Socket Manager] Sent unread count ${totalUnreadCount} to user ${userId} (${userSpecificUnread} user-specific, ${unreadBroadcastCount} broadcast)`);
+        } catch (error) {
+          console.error("❌ [Socket Manager] Error getting notification unread count:", error.message);
+          socket.emit("notification-unread-count", {
+            success: false,
+            error: "Failed to get unread count"
+          });
         }
       });
 
@@ -622,9 +812,81 @@ class SocketManager {
 
   // NOTIFICATION BROADCAST METHODS
 
+  // Helper method to save notification to database
+  async saveNotificationToDatabase(notificationData, userIds = []) {
+    try {
+      // Skip saving if this is an admin broadcast - it's handled in the controller
+      if (notificationData.eventName === 'admin-notification-broadcast') {
+        console.log(`📢 [Socket Manager] Skipping database save for admin broadcast - handled in controller`);
+        return;
+      }
+
+      const notifications = userIds.map(userId => ({
+        userId: userId,
+        title: notificationData.notification.title,
+        message: notificationData.notification.message,
+        type: notificationData.notification.type || 'info',
+        icon: notificationData.notification.icon || '📢',
+        category: this.getCategoryFromEventName(notificationData.eventName),
+        relatedEntityId: notificationData._id,
+        relatedEntityType: this.getEntityTypeFromEventName(notificationData.eventName),
+        campusId: notificationData.campusId || null,
+        eventName: notificationData.eventName,
+        data: notificationData
+      }));
+
+      if (notifications.length > 0) {
+        await Notification.insertMany(notifications);
+        console.log(`💾 [Socket Manager] Saved ${notifications.length} notifications to database`);
+      }
+    } catch (error) {
+      console.error('❌ [Socket Manager] Failed to save notifications to database:', error.message);
+    }
+  }
+
+  // Helper method to get category from event name
+  getCategoryFromEventName(eventName) {
+    const categoryMap = {
+      'new-campus-released': 'campus-release',
+      'new-film-released': 'film-release',
+      'new-series-content-released': 'series-release',
+      'new-book-released': 'book-release',
+      'new-course-released': 'course-release',
+      'new-lesson-released': 'lesson-release',
+      'subscription-expiry-warning': 'subscription-warning'
+    };
+    return categoryMap[eventName] || 'general';
+  }
+
+  // Helper method to get entity type from event name
+  getEntityTypeFromEventName(eventName) {
+    const typeMap = {
+      'new-campus-released': 'campus',
+      'new-film-released': 'film',
+      'new-series-content-released': 'series',
+      'new-book-released': 'book',
+      'new-course-released': 'course',
+      'new-lesson-released': 'lesson',
+      'subscription-expiry-warning': 'subscription'
+    };
+    return typeMap[eventName] || null;
+  }
+
   // Global broadcast to all users
-  broadcastGlobalNotification(eventName, data) {
+  async broadcastGlobalNotification(eventName, data) {
     console.log(`📢 [Socket Manager] Broadcasting global notification: ${eventName}`);
+    
+    // Get all user IDs for database storage
+    const users = await User.find({}, '_id');
+    const userIds = users.map(user => user._id.toString());
+    
+    // Add eventName to data for database storage
+    const notificationData = { ...data, eventName };
+    
+    // Save to database
+    await this.saveNotificationToDatabase(notificationData, userIds);
+    
+    // Emit socket event
     this.io.emit(eventName, data);
   }
 
@@ -641,6 +903,12 @@ class SocketManager {
 
     const memberIds = campus.members.map(member => member.userId.toString());
     
+    // Add eventName and campusId to data for database storage
+    const notificationData = { ...data, eventName, campusId };
+    
+    // Save to database
+    await this.saveNotificationToDatabase(notificationData, memberIds);
+    
     // Send notification to each campus member
     memberIds.forEach(userId => {
       this.io.to(`user:${userId}`).emit(eventName, data);
@@ -648,8 +916,16 @@ class SocketManager {
   }
 
   // Send notification to specific user
-  broadcastUserNotification(eventName, data, userId) {
+  async broadcastUserNotification(eventName, data, userId) {
     console.log(`📢 [Socket Manager] Broadcasting user notification: ${eventName} to user ${userId}`);
+    
+    // Add eventName to data for database storage
+    const notificationData = { ...data, eventName };
+    
+    // Save to database
+    await this.saveNotificationToDatabase(notificationData, [userId]);
+    
+    // Emit socket event
     this.io.to(`user:${userId}`).emit(eventName, data);
   }
 
@@ -671,7 +947,7 @@ class SocketManager {
       }
     };
     
-    this.broadcastGlobalNotification('new-campus-released', notificationData);
+    await this.broadcastGlobalNotification('new-campus-released', notificationData);
   }
 
   // New Film Release (Global)
@@ -691,7 +967,7 @@ class SocketManager {
       }
     };
     
-    this.broadcastGlobalNotification('new-film-released', notificationData);
+    await this.broadcastGlobalNotification('new-film-released', notificationData);
   }
 
   // New Series/Season/Episode Release (Global)
@@ -715,7 +991,7 @@ class SocketManager {
       }
     };
     
-    this.broadcastGlobalNotification('new-series-content-released', notificationData);
+    await this.broadcastGlobalNotification('new-series-content-released', notificationData);
   }
 
   // New Book Release (Global)
@@ -735,7 +1011,7 @@ class SocketManager {
       }
     };
     
-    this.broadcastGlobalNotification('new-book-released', notificationData);
+    await this.broadcastGlobalNotification('new-book-released', notificationData);
   }
 
   // New Course Release (Campus Members)
@@ -801,7 +1077,7 @@ class SocketManager {
       }
     };
     
-    this.broadcastUserNotification('subscription-expiry-warning', notificationData, user._id);
+    await this.broadcastUserNotification('subscription-expiry-warning', notificationData, user._id);
   }
 
   // UPLOAD PROGRESS TRACKING METHODS
@@ -822,6 +1098,13 @@ class SocketManager {
   broadcastUploadError(userId, data) {
     console.log(`❌ [Socket Manager] Broadcasting upload error to user ${userId}:`, data);
     this.io.to(`user:${userId}`).emit('upload-error', data);
+  }
+
+  // HELPER METHODS
+
+  // Emit any event to a specific user
+  emitToUser(userId, eventName, data) {
+    this.io.to(`user:${userId}`).emit(eventName, data);
   }
 }
 

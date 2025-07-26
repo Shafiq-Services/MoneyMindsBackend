@@ -4,14 +4,18 @@ const router = require("express").Router();
 const {
   createBanner,
   getBanners,
+  getActiveBanner,
   editBanner,
+  toggleBannerActive,
   deleteBanner,
 } = require("../controllers/banner");
 
 //Routes
 router.post("/create", createBanner);
 router.get("/get", getBanners);
-router.put("/edit/:id", editBanner);
-router.delete("/delete/:id", deleteBanner);
+router.get("/active", getActiveBanner);
+router.put("/edit", editBanner);
+router.put("/activate", toggleBannerActive);
+router.delete("/delete", deleteBanner);
 
 module.exports = router;
