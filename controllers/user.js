@@ -516,11 +516,12 @@ const getUserProfile = async (req, res) => {
 
 const editUserProfile = async (req, res) => {
   try {
-    const { firstName, lastName, phone, email, country, bio } = req.body;
+    const { firstName, lastName, username, phone, email, country, bio } = req.body;
     const user = await User.findById(req.userId);
     if (!user) return errorResponse(res, 404, "User account not found");
     if(!firstName) return errorResponse(res, 400, "First name is required");
     if(!lastName) return errorResponse(res, 400, "Last name is required");
+    if(!username) return errorResponse(res, 400, "Username is required");
     if(!phone) return errorResponse(res, 400, "Phone number is required");
     if(!email) return errorResponse(res, 400, "Email is required");
     if(!country) return errorResponse(res, 400, "Country is required");
@@ -528,6 +529,7 @@ const editUserProfile = async (req, res) => {
     
     user.firstName = firstName;
     user.lastName = lastName;
+    user.username = username;
     user.phone = phone;
     user.email = email;
     user.country = country;
