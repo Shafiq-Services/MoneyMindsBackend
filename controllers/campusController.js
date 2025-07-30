@@ -2,11 +2,32 @@ const Campus = require('../models/campus');
 const Course = require('../models/course');
 const Module = require('../models/module');
 const Lesson = require('../models/lesson');
+const Channel = require('../models/channel');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { isUserInCampus, getCampusWithMembershipCheck, ensureMoneyMindsCampusExists } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
 const { addVideoResolutions } = require('../utils/videoResolutions');
 const { addProgressToItem } = require('../utils/progressHelper');
+
+// Helper function to calculate total unread count for a user in a campus
+const getCampusUnreadCount = async (userId, campusId) => {
+  try {
+    // Find all channels in this campus
+    const channels = await Channel.find({ campusId: campusId });
+    let totalUnreadCount = 0;
+    
+    // Calculate unread count for each channel
+    for (const channel of channels) {
+      const channelUnreadCount = await socketManager.getUnreadCount(userId, channel._id);
+      totalUnreadCount += channelUnreadCount;
+    }
+    
+    return totalUnreadCount;
+  } catch (error) {
+    console.error('Error calculating campus unread count:', error);
+    return 0; // Return 0 if there's an error
+  }
+};
 
 const createCampus = async (req, res) => {
   try {
@@ -42,6 +63,7 @@ const createCampus = async (req, res) => {
       mainIconUrl: campus.mainIconUrl,
       campusIconUrl: campus.campusIconUrl,
       members: campus.members,
+      unreadCount: 0, // New campus has no unread messages
       createdAt: campus.createdAt
     };
 
@@ -72,6 +94,10 @@ const editCampus = async (req, res) => {
     
     await campus.save();
 
+    // Get unread count for the edited campus (for the admin user making the edit)
+    const userId = req.userId;
+    const unreadCount = await getCampusUnreadCount(userId, campus._id);
+
     // Structure response in organized format
     const responseData = {
       _id: campus._id,
@@ -81,6 +107,7 @@ const editCampus = async (req, res) => {
       mainIconUrl: campus.mainIconUrl,
       campusIconUrl: campus.campusIconUrl,
       members: campus.members,
+      unreadCount: unreadCount,
       createdAt: campus.createdAt
     };
 
@@ -181,10 +208,13 @@ const listCampuses = async (req, res) => {
     // Only get regular campuses (exclude Money Minds campus from general listing)
     const campuses = await Campus.find({ isMoneyMindsCampus: { $ne: true } }).select('slug title imageUrl mainIconUrl campusIconUrl members createdAt');
     
-    const structuredCampuses = campuses.map(campus => {
+    const structuredCampuses = await Promise.all(campuses.map(async campus => {
       const isJoined = campus.members.some(member => 
         member.userId.toString() === userId.toString()
       );
+      
+      // Get unread count for this campus if user is joined
+      const unreadCount = isJoined ? await getCampusUnreadCount(userId, campus._id) : 0;
       
       return {
         _id: campus._id,
@@ -195,9 +225,10 @@ const listCampuses = async (req, res) => {
         campusIconUrl: campus.campusIconUrl,
         memberCount: campus.members.length,
         joined: isJoined,
+        unreadCount: unreadCount,
         createdAt: campus.createdAt
       };
-    });
+    }));
 
     return successResponse(res, 200, 'Campuses retrieved successfully', structuredCampuses, 'campuses');
   } catch (error) {
@@ -225,7 +256,8 @@ const getUserCampuses = async (req, res) => {
     // Structure response with Money Minds campus at the top
     const structuredUserCampuses = [];
     
-    // Add Money Minds campus first (ALWAYS present for ALL users)
+    // Add Money Minds campus first (ALWAYS present for ALL users) with unread count
+    const moneyMindsUnreadCount = await getCampusUnreadCount(userId, moneyMindsCampus._id);
     structuredUserCampuses.push({
       _id: moneyMindsCampus._id,
       slug: moneyMindsCampus.slug,
@@ -234,19 +266,24 @@ const getUserCampuses = async (req, res) => {
       mainIconUrl: moneyMindsCampus.mainIconUrl,
       campusIconUrl: moneyMindsCampus.campusIconUrl,
       memberCount: moneyMindsCampus.members.length,
+      unreadCount: moneyMindsUnreadCount,
       createdAt: moneyMindsCampus.createdAt
     });
     
-    // Add regular campuses
-    const regularCampuses = userCampuses.map(campus => ({
-      _id: campus._id,
-      slug: campus.slug,
-      title: campus.title,
-      imageUrl: campus.imageUrl,
-      mainIconUrl: campus.mainIconUrl,
-      campusIconUrl: campus.campusIconUrl,
-      memberCount: campus.members.length,
-      createdAt: campus.createdAt
+    // Add regular campuses with unread counts
+    const regularCampuses = await Promise.all(userCampuses.map(async campus => {
+      const unreadCount = await getCampusUnreadCount(userId, campus._id);
+      return {
+        _id: campus._id,
+        slug: campus.slug,
+        title: campus.title,
+        imageUrl: campus.imageUrl,
+        mainIconUrl: campus.mainIconUrl,
+        campusIconUrl: campus.campusIconUrl,
+        memberCount: campus.members.length,
+        unreadCount: unreadCount,
+        createdAt: campus.createdAt
+      };
     }));
     
     structuredUserCampuses.push(...regularCampuses);
@@ -364,6 +401,9 @@ const getCampusById = async (req, res) => {
       };
     });
 
+    // Get unread count for this campus
+    const unreadCount = await getCampusUnreadCount(userId, campus._id);
+
     // Structure the complete campus response
     const responseData = {
       _id: campus._id,
@@ -373,6 +413,7 @@ const getCampusById = async (req, res) => {
       mainIconUrl: campus.mainIconUrl,
       campusIconUrl: campus.campusIconUrl,
       memberCount: campus.members.length,
+      unreadCount: unreadCount,
       courses: structuredCourses,
       createdAt: campus.createdAt
     };

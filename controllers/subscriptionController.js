@@ -199,6 +199,7 @@ exports.getSubscriptionStatus = async (req, res) => {
       hasSubscription: true,
       subscription: {
         _id: subscription._id,
+        subscriptionId: subscription.metadata?.stripeSubscriptionId || null,
         plan: subscription.plan,
         status: subscription.status,
         currentPeriodEnd: subscription.currentPeriodEnd,
@@ -724,6 +725,7 @@ exports.getCurrentSubscription = async (req, res) => {
       message: 'Current subscription retrieved',
       plan: {
         _id: subscription._id,
+        subscriptionId: subscription.metadata?.stripeSubscriptionId || null,
         plan: subscription.plan,
         status: subscription.status,
         currentPeriodEnd: subscription.currentPeriodEnd,
