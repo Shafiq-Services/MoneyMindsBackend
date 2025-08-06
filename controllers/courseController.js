@@ -280,6 +280,7 @@ const getCourseById = async (req, res) => {
 
 const getContinueLearning = async (req, res) => {
   try {
+    const { page = 1, limit = 10 } = req.query;
     const userId = req.userId;
     console.log('🔍 [Continue Learning] Starting API call for user:', userId);
 

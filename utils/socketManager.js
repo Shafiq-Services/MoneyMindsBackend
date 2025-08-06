@@ -69,6 +69,13 @@ class SocketManager {
       // Join all channel rooms for user's campuses
       const campuses = await Campus.find({ "members.userId": userId });
       const campusIds = campuses.map((c) => c._id.toString());
+      
+      // Also include Money Minds campus for all users (virtual campus)
+      const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
+      if (moneyMindsCampus) {
+        campusIds.push(moneyMindsCampus._id.toString());
+      }
+      
       const channels = await Channel.find({ campusId: { $in: campusIds } });
       channels.forEach((ch) => {
         socket.join(`channel:${ch._id}`);
@@ -694,6 +701,13 @@ class SocketManager {
   async getAllUnreadCounts(userId) {
     const campuses = await Campus.find({ "members.userId": userId });
     const campusIds = campuses.map((c) => c._id.toString());
+    
+    // Also include Money Minds campus for all users (virtual campus)
+    const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
+    if (moneyMindsCampus) {
+      campusIds.push(moneyMindsCampus._id.toString());
+    }
+    
     const channels = await Channel.find({ campusId: { $in: campusIds } });
     const result = {};
     for (const ch of channels) {
