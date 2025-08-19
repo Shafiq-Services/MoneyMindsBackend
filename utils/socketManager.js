@@ -609,7 +609,18 @@ class SocketManager {
     // Find all users in this channel (campus members)
     const channel = await Channel.findById(channelId).populate("campusId");
     const campus = channel.campusId;
-    const memberIds = campus.members.map((m) => m.userId.toString());
+    
+    let memberIds;
+    // Handle Money Minds campus (virtual campus with all users)
+    if (campus.isMoneyMindsCampus) {
+      // For Money Minds campus, get all users
+      const User = require('../models/user');
+      const allUsers = await User.find({}, '_id');
+      memberIds = allUsers.map(user => user._id.toString());
+    } else {
+      // For regular campuses, get campus members
+      memberIds = campus.members.map((m) => m.userId.toString());
+    }
     for (const userId of memberIds) {
       // Skip sender for unread
       if (userId === senderId.toString()) continue;
@@ -648,7 +659,18 @@ class SocketManager {
     // Find all users in this channel (campus members)
     const channel = await Channel.findById(channelId).populate("campusId");
     const campus = channel.campusId;
-    const memberIds = campus.members.map((m) => m.userId.toString());
+    
+    let memberIds;
+    // Handle Money Minds campus (virtual campus with all users)
+    if (campus.isMoneyMindsCampus) {
+      // For Money Minds campus, get all users
+      const User = require('../models/user');
+      const allUsers = await User.find({}, '_id');
+      memberIds = allUsers.map(user => user._id.toString());
+    } else {
+      // For regular campuses, get campus members
+      memberIds = campus.members.map((m) => m.userId.toString());
+    }
     
     // Format the message with isMe flag for each user
     for (const userId of memberIds) {
@@ -669,7 +691,18 @@ class SocketManager {
     // Find all users in this channel (campus members)
     const channel = await Channel.findById(channelId).populate("campusId");
     const campus = channel.campusId;
-    const memberIds = campus.members.map((m) => m.userId.toString());
+    
+    let memberIds;
+    // Handle Money Minds campus (virtual campus with all users)
+    if (campus.isMoneyMindsCampus) {
+      // For Money Minds campus, get all users
+      const User = require('../models/user');
+      const allUsers = await User.find({}, '_id');
+      memberIds = allUsers.map(user => user._id.toString());
+    } else {
+      // For regular campuses, get campus members
+      memberIds = campus.members.map((m) => m.userId.toString());
+    }
     
     for (const userId of memberIds) {
       const ctx = this.userContext[userId];

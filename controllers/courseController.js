@@ -287,6 +287,14 @@ const getContinueLearning = async (req, res) => {
     // Get all campuses where user is a member
     const userCampuses = await Campus.find({ 'members.userId': userId });
     const campusIds = userCampuses.map(campus => campus._id);
+    
+    // Also include Money Minds campus for all users (virtual campus)
+    const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
+    if (moneyMindsCampus) {
+      campusIds.push(moneyMindsCampus._id);
+      userCampuses.push(moneyMindsCampus);
+    }
+    
     console.log('🏫 [Continue Learning] User campuses found:', userCampuses.length);
     console.log('🏫 [Continue Learning] Campus IDs:', campusIds.map(id => id.toString()));
 
