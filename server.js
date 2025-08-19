@@ -42,6 +42,7 @@ const corsOptions = {
     'https://moneyminds-fddbbaejd3c2afdc.canadacentral-01.azurewebsites.net',
     'https://moneyminds-fullstack.web.app',
     'https://money-minds-user.vercel.app',
+    'https://money-minds-admin.web.app',
     // Add your production frontend URL here when deployed
   ],
   credentials: true,
