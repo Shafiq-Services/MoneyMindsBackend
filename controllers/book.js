@@ -10,10 +10,10 @@ const socketManager = require("../utils/socketManager");
  * @access Public
  */
 module.exports.createBook = async (req, res) => {
-  const { title, author, image, content } = req.body;
+  const { title, author, image, chapters } = req.body;
 
   //Error handling
-  if (!title || !author || !image || !content) {
+  if (!title || !author || !image || chapters.length === 0) {
     return res.status(400).json({ message: "All fields are required" });
   }
 
@@ -22,7 +22,7 @@ module.exports.createBook = async (req, res) => {
       title,
       author,
       image,
-      content,
+      chapters,
     });
 
     // Broadcast new book release to all users
@@ -42,7 +42,9 @@ module.exports.createBook = async (req, res) => {
  */
 module.exports.getBooks = async (req, res) => {
   try {
-    const books = await Book.find({}, { isOpened: 0 }).sort({ createdAt: -1 }).lean();
+    const books = await Book.find({}, { isOpened: 0 })
+      .sort({ createdAt: -1 })
+      .lean();
 
     //Response
     return successResponse(res, 200, "Books retrieved successfully", books);
@@ -54,65 +56,100 @@ module.exports.getBooks = async (req, res) => {
 module.exports.getContinueReading = async (req, res) => {
   try {
     const userId = req.userId;
-    console.log('📚 [Continue Reading] Starting API call for user:', userId);
-    console.log('📚 [Continue Reading] User ID type:', typeof userId);
-    
+    console.log("📚 [Continue Reading] Starting API call for user:", userId);
+    console.log("📚 [Continue Reading] User ID type:", typeof userId);
+
     // Safety check for userId
     if (!userId) {
-      console.error('❌ [Continue Reading] No userId found in request');
+      console.error("❌ [Continue Reading] No userId found in request");
       return errorResponse(res, 401, "Authentication required");
     }
 
     // First, let's check what books exist with isOpened arrays
-    const allBooksWithOpened = await Book.find({ isOpened: { $exists: true, $ne: [] } }).lean();
-    console.log('📊 [Continue Reading] Total books with isOpened arrays:', allBooksWithOpened.length);
-    
-    allBooksWithOpened.forEach(book => {
-      console.log(`📖 [Continue Reading] Book "${book.title}" has isOpened:`, book.isOpened.map(id => id.toString()));
-      console.log(`📖 [Continue Reading] Does it contain user ${userId}?`, book.isOpened.some(id => id.toString() === userId.toString()));
+    const allBooksWithOpened = await Book.find({
+      isOpened: { $exists: true, $ne: [] },
+    }).lean();
+    console.log(
+      "📊 [Continue Reading] Total books with isOpened arrays:",
+      allBooksWithOpened.length
+    );
+
+    allBooksWithOpened.forEach((book) => {
+      console.log(
+        `📖 [Continue Reading] Book "${book.title}" has isOpened:`,
+        book.isOpened.map((id) => id.toString())
+      );
+      console.log(
+        `📖 [Continue Reading] Does it contain user ${userId}?`,
+        book.isOpened.some((id) => id.toString() === userId.toString())
+      );
     });
 
     // Find books where:
     // 1. isOpened array exists and is not empty
     // 2. Current user ID is in the isOpened array
-    console.log('🔍 [Continue Reading] Searching with query:', { 
-      isOpened: { 
-        $exists: true, 
-        $ne: [], 
-        $in: [userId] 
-      }
+    console.log("🔍 [Continue Reading] Searching with query:", {
+      isOpened: {
+        $exists: true,
+        $ne: [],
+        $in: [userId],
+      },
     });
-    
+
     const continueReadingBooks = await Book.find(
-      { 
-        isOpened: { 
-          $exists: true, 
-          $ne: [], 
-          $in: [new mongoose.Types.ObjectId(userId)] // Convert to ObjectId for proper matching
-        }
+      {
+        isOpened: {
+          $exists: true,
+          $ne: [],
+          $in: [new mongoose.Types.ObjectId(userId)], // Convert to ObjectId for proper matching
+        },
       },
       { isOpened: 0 } // Exclude isOpened field from response
-    ).sort({ updatedAt: -1 }).lean(); // Sort by recently opened (updatedAt when isOpened array is modified)
+    )
+      .sort({ updatedAt: -1 })
+      .lean(); // Sort by recently opened (updatedAt when isOpened array is modified)
 
-    console.log('📊 [Continue Reading] Found', continueReadingBooks.length, 'books for user');
-    console.log('📋 [Continue Reading] Book titles:', continueReadingBooks.map(book => book.title));
+    console.log(
+      "📊 [Continue Reading] Found",
+      continueReadingBooks.length,
+      "books for user"
+    );
+    console.log(
+      "📋 [Continue Reading] Book titles:",
+      continueReadingBooks.map((book) => book.title)
+    );
 
     // Structure response following API conventions
-    const structuredBooks = continueReadingBooks.map(book => ({
+    const structuredBooks = continueReadingBooks.map((book) => ({
       _id: book._id,
       title: book.title,
       author: book.author,
       image: book.image,
-      content: book.content,
-      createdAt: book.createdAt
+      chapters: book.chapters,
+      createdAt: book.createdAt,
     }));
 
-    console.log('✅ [Continue Reading] Returning', structuredBooks.length, 'books');
+    console.log(
+      "✅ [Continue Reading] Returning",
+      structuredBooks.length,
+      "books"
+    );
 
-    return successResponse(res, 200, "Continue reading books retrieved successfully", structuredBooks, "continueReading");
+    return successResponse(
+      res,
+      200,
+      "Continue reading books retrieved successfully",
+      structuredBooks,
+      "continueReading"
+    );
   } catch (error) {
-    console.error('❌ [Continue Reading] Error:', error.message);
-    return errorResponse(res, 500, "Failed to get continue reading books", error.message);
+    console.error("❌ [Continue Reading] Error:", error.message);
+    return errorResponse(
+      res,
+      500,
+      "Failed to get continue reading books",
+      error.message
+    );
   }
 };
 
@@ -123,14 +160,14 @@ module.exports.getContinueReading = async (req, res) => {
  */
 module.exports.editBook = async (req, res) => {
   const { id } = req.params;
-  const { title, author, image, content } = req.body;
+  const { title, author, image, chapters } = req.body;
 
   try {
     const book = await Book.findByIdAndUpdate(id, {
       title,
       author,
       image,
-      content,
+      chapters,
     });
 
     if (!book) {
