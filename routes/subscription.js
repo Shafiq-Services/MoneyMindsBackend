@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const subscriptionController = require('../controllers/subscriptionController');
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware } = require('../middlewares/auth');
 
 // Subscription Plans (Authentication required)
 router.get('/plans', authMiddleware, subscriptionController.getSubscriptionPlans);

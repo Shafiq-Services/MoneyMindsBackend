@@ -3,10 +3,10 @@ const router = express.Router();
 const { postVideo, getRandomSuggestion, getContinueWatching } = require('../controllers/video');
 const { getRandomFilms, getPopularFilms } = require('../controllers/film');
 const { getRandomSeries } = require('../controllers/series');
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
-// POST /api/video
-router.post('/add-video', postVideo);
+// Admin-only video content management
+router.post('/add-video', adminAuthMiddleware, postVideo);
 
 router.use(authMiddleware); 
 

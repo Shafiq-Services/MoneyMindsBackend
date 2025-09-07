@@ -1,4 +1,5 @@
 const router = require("express").Router();
+const { authMiddleware, adminAuthMiddleware } = require("../middlewares/auth");
 
 //Controllers
 const {
@@ -10,12 +11,14 @@ const {
   deleteBanner,
 } = require("../controllers/banner");
 
-//Routes
-router.post("/create", createBanner);
-router.get("/get", getBanners);
+// Public banner viewing routes
 router.get("/active", getActiveBanner);
-router.put("/edit", editBanner);
-router.put("/activate", toggleBannerActive);
-router.delete("/delete", deleteBanner);
+
+// Admin-only banner management routes
+router.post("/create", adminAuthMiddleware, createBanner);
+router.get("/get", adminAuthMiddleware, getBanners);
+router.put("/edit", adminAuthMiddleware, editBanner);
+router.put("/activate", adminAuthMiddleware, toggleBannerActive);
+router.delete("/delete", adminAuthMiddleware, deleteBanner);
 
 module.exports = router;

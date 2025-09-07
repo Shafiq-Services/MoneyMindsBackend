@@ -1,16 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 const notificationController = require('../controllers/notificationController');
 
-router.use(authMiddleware);
-
 // User notification endpoints
-router.get('/list', notificationController.getUserNotifications);
-router.get('/categories', notificationController.getNotificationCategories);
+router.get('/list', authMiddleware, notificationController.getUserNotifications);
+router.get('/categories', authMiddleware, notificationController.getNotificationCategories);
 
-// Admin notification endpoints (using user middleware for now)
-router.post('/admin/send', notificationController.sendAdminNotification);
-router.get('/admin/history', notificationController.getAdminNotificationHistory);
+// Admin-only notification endpoints
+router.post('/admin/send', adminAuthMiddleware, notificationController.sendAdminNotification);
+router.get('/admin/history', adminAuthMiddleware, notificationController.getAdminNotificationHistory);
 
 module.exports = router; 

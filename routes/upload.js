@@ -6,7 +6,7 @@ const {
   uploadGeneralFile,
   upload
 } = require('../controllers/upload');
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware } = require('../middlewares/auth');
 const { errorResponse } = require('../utils/apiResponse');
 const multer = require('multer');
 

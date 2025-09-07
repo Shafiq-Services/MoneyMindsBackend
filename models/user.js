@@ -10,6 +10,9 @@ const userSchema = new mongoose.Schema({
   bio: { type: String, default: '' },
   country: { type: String, default: '' },
   stripeCustomerId: { type: String },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  isActive: { type: Boolean, default: true },
+  password: { type: String }, // Only used for admin accounts
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

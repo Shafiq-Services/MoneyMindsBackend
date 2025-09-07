@@ -1,11 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { addSeries, getRandomSeries } = require('../controllers/series');
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
-// POST /api/series
-router.use(authMiddleware);
-router.post('/add-series', addSeries);
-router.get('/', getRandomSeries);
+// Admin-only series creation, public access for viewing
+router.post('/add-series', adminAuthMiddleware, addSeries);
+router.get('/', authMiddleware, getRandomSeries);
 
 module.exports = router; 

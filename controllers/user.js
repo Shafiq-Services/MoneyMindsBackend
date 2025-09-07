@@ -13,6 +13,7 @@ const mongoose = require("mongoose");
 const socketManager = require("../utils/socketManager");
 const { ensureUserInMoneyMindsCampus } = require("../utils/campusHelpers");
 const { addProgressToItem } = require("../utils/progressHelper");
+const bcrypt = require('bcrypt'); // Add bcrypt for password hashing
 
 // Helper function to format user data response consistently
 const formatUserResponse = (user) => ({
@@ -69,7 +70,7 @@ const signUp = async (req, res) => {
       `Hello ${firstName},\n\nYour One-Time Password (OTP) to continue with Money Minds is:\n\n🔐 OTP: ${otpCode}\n\nThis code is valid for 5 minutes. Please do not share it with anyone.\n\nIf you did not request this OTP, please ignore this message.\n\nThank you,  \nThe Money Minds Team`
     );
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ id: user._id, role: user.role || 'user' }, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
 
@@ -163,7 +164,7 @@ const verifyOtp = async (req, res) => {
     await Otp.deleteMany({ email });
     const user = await User.findOne({ email });
     
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ id: user._id, role: user.role || 'user' }, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
     return res.status(200).json({
@@ -544,6 +545,50 @@ const editUserProfile = async (req, res) => {
   }
 };
 
+// Admin login function
+const adminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return errorResponse(res, 400, "Email and password are required");
+    }
+
+    // Find admin user
+    const admin = await User.findOne({ email, role: 'admin', isActive: true });
+    if (!admin) {
+      return errorResponse(res, 401, "Invalid admin credentials");
+    }
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, admin.password);
+    if (!isValidPassword) {
+      return errorResponse(res, 401, "Invalid admin credentials");
+    }
+
+    // Generate admin JWT token with role
+    const token = jwt.sign(
+      { id: admin._id, role: 'admin' }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: "24h" } // Shorter expiry for admin sessions
+    );
+
+    return successResponse(res, 200, "Admin login successful", {
+      token,
+      admin: {
+        _id: admin._id,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        email: admin.email,
+        role: admin.role,
+        createdAt: admin.createdAt
+      }
+    });
+  } catch (err) {
+    return errorResponse(res, 500, "Admin login failed", err.message);
+  }
+};
+
 module.exports = {
   signUp,
   sendOtp,
@@ -556,5 +601,6 @@ module.exports = {
   modifyBio,
   modifyCountry,
   getUserProfile,
-  editUserProfile
+  editUserProfile,
+  adminLogin
 };

@@ -7,15 +7,15 @@ const {
   listLessonsByModule,
   getLessonById
 } = require('../controllers/lessonController');
-const authMiddleware = require('../middlewares/auth');
-router.use(authMiddleware);
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
-// All lesson routes require authentication
-router.get('/', getLessonById);
-router.get('/list', listLessonsByModule);
-//Admin Routes
-router.post('/', createLesson);
-router.put('/', editLesson);
-router.delete('/', deleteLesson);
+// Public lesson viewing routes (require user authentication)
+router.get('/', authMiddleware, getLessonById);
+router.get('/list', authMiddleware, listLessonsByModule);
+
+// Admin-only lesson management routes
+router.post('/', adminAuthMiddleware, createLesson);
+router.put('/', adminAuthMiddleware, editLesson);
+router.delete('/', adminAuthMiddleware, deleteLesson);
 
 module.exports = router; 

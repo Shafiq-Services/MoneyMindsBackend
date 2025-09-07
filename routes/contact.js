@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
 // Controllers
 const {
@@ -10,7 +10,7 @@ const {
 // Public route (no authentication required)
 router.post('/submit', submitContact);
 
-// Protected route (authentication required)
-router.get('/list', authMiddleware, getAllContacts);
+// Admin-only route to view contact submissions
+router.get('/list', adminAuthMiddleware, getAllContacts);
 
 module.exports = router; 
