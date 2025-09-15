@@ -8,7 +8,9 @@ const {
   leaveCampus,
   listCampuses,
   getUserCampuses,
-  getCampusById
+  getCampusById,
+  getAllCampusesAdmin,
+  getCampusByIdAdmin
 } = require('../controllers/campusController');
 const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
@@ -23,5 +25,9 @@ router.post('/leave', authMiddleware, leaveCampus);
 router.post('/', adminAuthMiddleware, createCampus);
 router.put('/', adminAuthMiddleware, editCampus);
 router.delete('/', adminAuthMiddleware, deleteCampus);
+
+// Admin APIs
+router.get('/admin/all', adminAuthMiddleware, getAllCampusesAdmin);
+router.get('/admin/get', adminAuthMiddleware, getCampusByIdAdmin);
 
 module.exports = router; 

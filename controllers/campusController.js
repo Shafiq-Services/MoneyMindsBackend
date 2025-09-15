@@ -424,6 +424,144 @@ const getCampusById = async (req, res) => {
   }
 };
 
+// ADMIN API - Get all campuses with pagination (no membership restrictions)
+const getAllCampusesAdmin = async (req, res) => {
+  try {
+    const { page = 1, perPage = 10 } = req.query;
+    const skip = (page - 1) * perPage;
+    
+    const campuses = await Campus.find()
+      .select('slug title imageUrl mainIconUrl campusIconUrl members isMoneyMindsCampus createdAt')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(perPage));
+    
+    const totalCount = await Campus.countDocuments();
+    const totalPages = Math.ceil(totalCount / perPage);
+    
+    const structuredCampuses = campuses.map(campus => ({
+      _id: campus._id,
+      slug: campus.slug,
+      title: campus.title,
+      imageUrl: campus.imageUrl,
+      mainIconUrl: campus.mainIconUrl,
+      campusIconUrl: campus.campusIconUrl,
+      memberCount: campus.members.length,
+      isMoneyMindsCampus: campus.isMoneyMindsCampus,
+      createdAt: campus.createdAt
+    }));
+
+    return successResponse(res, 200, 'All campuses retrieved successfully.', {
+      campuses: structuredCampuses,
+      pagination: {
+        page: parseInt(page),
+        perPage: parseInt(perPage),
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    });
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve campuses', error.message);
+  }
+};
+
+// ADMIN API - Get single campus by ID (no membership restrictions)
+const getCampusByIdAdmin = async (req, res) => {
+  try {
+    const { id } = req.query;
+
+    if (!id) {
+      return errorResponse(res, 400, 'Campus ID is required');
+    }
+
+    const campus = await Campus.findById(id).populate('members.userId', 'email firstName lastName username');
+    if (!campus) {
+      return errorResponse(res, 404, 'Campus not found');
+    }
+
+    // Get all courses in this campus with their modules and lessons
+    const coursesWithData = await Course.aggregate([
+      { $match: { campusId: campus._id } },
+      {
+        $lookup: {
+          from: 'modules',
+          localField: '_id',
+          foreignField: 'courseId',
+          as: 'modules'
+        }
+      },
+      {
+        $lookup: {
+          from: 'lessons',
+          localField: 'modules._id',
+          foreignField: 'moduleId',
+          as: 'lessons'
+        }
+      },
+      {
+        $sort: { createdAt: 1 }
+      }
+    ]);
+
+    // Organize the nested structure properly
+    const structuredCourses = coursesWithData.map(course => {
+      const courseModules = course.modules.map(module => {
+        const moduleLessons = course.lessons
+          .filter(lesson => lesson.moduleId.toString() === module._id.toString())
+          .map(lesson => ({
+            _id: lesson._id,
+            moduleId: lesson.moduleId,
+            name: lesson.name,
+            videoUrl: lesson.videoUrl,
+            text: lesson.text,
+            notes: lesson.notes || '',
+            resolutions: lesson.resolutions || [],
+            length: lesson.length || 0,
+            createdAt: lesson.createdAt
+          }));
+
+        return {
+          _id: module._id,
+          courseId: module.courseId,
+          name: module.name,
+          lessons: moduleLessons,
+          createdAt: module.createdAt
+        };
+      });
+
+      return {
+        _id: course._id,
+        campusId: course.campusId,
+        title: course.title,
+        imageUrl: course.imageUrl,
+        modules: courseModules,
+        createdAt: course.createdAt
+      };
+    });
+
+    // Structure the complete campus response
+    const responseData = {
+      _id: campus._id,
+      slug: campus.slug,
+      title: campus.title,
+      imageUrl: campus.imageUrl,
+      mainIconUrl: campus.mainIconUrl,
+      campusIconUrl: campus.campusIconUrl,
+      isMoneyMindsCampus: campus.isMoneyMindsCampus,
+      members: campus.members,
+      memberCount: campus.members.length,
+      courses: structuredCourses,
+      createdAt: campus.createdAt
+    };
+
+    return successResponse(res, 200, 'Campus retrieved successfully', responseData);
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve campus', error.message);
+  }
+};
+
 module.exports = {
   createCampus,
   editCampus,
@@ -432,5 +570,8 @@ module.exports = {
   leaveCampus,
   listCampuses,
   getUserCampuses,
-  getCampusById
+  getCampusById,
+  // Admin APIs
+  getAllCampusesAdmin,
+  getCampusByIdAdmin
 }; 

@@ -230,10 +230,140 @@ const getModuleById = async (req, res) => {
   }
 };
 
+// ADMIN API - Get all modules with pagination (no membership restrictions)
+const getAllModulesAdmin = async (req, res) => {
+  try {
+    const { page = 1, perPage = 10, courseId } = req.query;
+    const skip = (page - 1) * perPage;
+    
+    let matchCondition = {};
+    if (courseId && require('mongoose').Types.ObjectId.isValid(courseId)) {
+      matchCondition.courseId = new require('mongoose').Types.ObjectId(courseId);
+    }
+    
+    const pipeline = [
+      { $match: matchCondition },
+      { $skip: skip },
+      { $limit: parseInt(perPage) },
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'courses',
+          localField: 'courseId',
+          foreignField: '_id',
+          as: 'course'
+        }
+      },
+      {
+        $lookup: {
+          from: 'campuses',
+          localField: 'course.campusId',
+          foreignField: '_id',
+          as: 'campus'
+        }
+      },
+      {
+        $lookup: {
+          from: 'lessons',
+          localField: '_id',
+          foreignField: 'moduleId',
+          as: 'lessons'
+        }
+      },
+      {
+        $addFields: {
+          courseTitle: { $arrayElemAt: ['$course.title', 0] },
+          campusTitle: { $arrayElemAt: ['$campus.title', 0] },
+          campusId: { $arrayElemAt: ['$course.campusId', 0] },
+          lessonCount: { $size: '$lessons' }
+        }
+      },
+      { $project: { course: 0, campus: 0, lessons: 0 } }
+    ];
+    
+    const modules = await Module.aggregate(pipeline);
+    const totalCount = await Module.countDocuments(matchCondition);
+    const totalPages = Math.ceil(totalCount / perPage);
+
+    return successResponse(res, 200, 'Modules retrieved successfully.', {
+      modules,
+      pagination: {
+        page: parseInt(page),
+        perPage: parseInt(perPage),
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    });
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve modules', error.message);
+  }
+};
+
+// ADMIN API - Get single module by ID (no membership restrictions)
+const getModuleByIdAdmin = async (req, res) => {
+  try {
+    const { id } = req.query;
+
+    if (!id) {
+      return errorResponse(res, 400, 'Module ID is required');
+    }
+
+    const module = await Module.findById(id).populate({
+      path: 'courseId',
+      populate: {
+        path: 'campusId',
+        select: 'title slug imageUrl'
+      }
+    });
+    
+    if (!module) {
+      return errorResponse(res, 404, 'Module not found');
+    }
+
+    // Get all lessons for this module
+    const lessons = await Lesson.find({ moduleId: module._id }).sort({ createdAt: 1 });
+
+    // Structure the lessons
+    const structuredLessons = lessons.map(lesson => ({
+      _id: lesson._id,
+      moduleId: lesson.moduleId,
+      name: lesson.name,
+      videoUrl: lesson.videoUrl,
+      text: lesson.text,
+      notes: lesson.notes || '',
+      resolutions: lesson.resolutions || [],
+      length: lesson.length || 0,
+      createdAt: lesson.createdAt
+    }));
+
+    // Structure response
+    const responseData = {
+      _id: module._id,
+      courseId: module.courseId._id,
+      courseTitle: module.courseId.title,
+      campusId: module.courseId.campusId._id,
+      campusTitle: module.courseId.campusId.title,
+      campusSlug: module.courseId.campusId.slug,
+      name: module.name,
+      lessons: structuredLessons,
+      createdAt: module.createdAt
+    };
+
+    return successResponse(res, 200, 'Module retrieved successfully', responseData);
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve module', error.message);
+  }
+};
+
 module.exports = {
   createModule,
   editModule,
   deleteModule,
   listModulesByCourse,
-  getModuleById
+  getModuleById,
+  // Admin APIs
+  getAllModulesAdmin,
+  getModuleByIdAdmin
 }; 

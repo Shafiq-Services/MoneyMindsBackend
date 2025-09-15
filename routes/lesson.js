@@ -5,7 +5,9 @@ const {
   editLesson,
   deleteLesson,
   listLessonsByModule,
-  getLessonById
+  getLessonById,
+  getAllLessonsAdmin,
+  getLessonByIdAdmin
 } = require('../controllers/lessonController');
 const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
@@ -17,5 +19,9 @@ router.get('/list', authMiddleware, listLessonsByModule);
 router.post('/', adminAuthMiddleware, createLesson);
 router.put('/', adminAuthMiddleware, editLesson);
 router.delete('/', adminAuthMiddleware, deleteLesson);
+
+// Admin APIs
+router.get('/admin/all', adminAuthMiddleware, getAllLessonsAdmin);
+router.get('/admin/get', adminAuthMiddleware, getLessonByIdAdmin);
 
 module.exports = router; 

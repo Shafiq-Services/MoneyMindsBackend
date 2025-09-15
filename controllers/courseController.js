@@ -502,11 +502,144 @@ const getContinueLearning = async (req, res) => {
   }
 };
 
+// ADMIN API - Get all courses with pagination (no membership restrictions)
+const getAllCoursesAdmin = async (req, res) => {
+  try {
+    const { page = 1, perPage = 10, campusId } = req.query;
+    const skip = (page - 1) * perPage;
+    
+    let matchCondition = {};
+    if (campusId && mongoose.Types.ObjectId.isValid(campusId)) {
+      matchCondition.campusId = new mongoose.Types.ObjectId(campusId);
+    }
+    
+    const pipeline = [
+      { $match: matchCondition },
+      { $skip: skip },
+      { $limit: parseInt(perPage) },
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'campuses',
+          localField: 'campusId',
+          foreignField: '_id',
+          as: 'campus'
+        }
+      },
+      {
+        $lookup: {
+          from: 'modules',
+          localField: '_id',
+          foreignField: 'courseId',
+          as: 'modules'
+        }
+      },
+      {
+        $addFields: {
+          campusTitle: { $arrayElemAt: ['$campus.title', 0] },
+          campusSlug: { $arrayElemAt: ['$campus.slug', 0] },
+          moduleCount: { $size: '$modules' }
+        }
+      },
+      { $project: { campus: 0, modules: 0 } }
+    ];
+    
+    const courses = await Course.aggregate(pipeline);
+    const totalCount = await Course.countDocuments(matchCondition);
+    const totalPages = Math.ceil(totalCount / perPage);
+
+    return successResponse(res, 200, 'Courses retrieved successfully.', {
+      courses,
+      pagination: {
+        page: parseInt(page),
+        perPage: parseInt(perPage),
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    });
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve courses', error.message);
+  }
+};
+
+// ADMIN API - Get single course by ID (no membership restrictions)
+const getCourseByIdAdmin = async (req, res) => {
+  try {
+    const { id } = req.query;
+
+    if (!id) {
+      return errorResponse(res, 400, 'Course ID is required');
+    }
+
+    const course = await Course.findById(id).populate('campusId', 'title slug imageUrl');
+    if (!course) {
+      return errorResponse(res, 404, 'Course not found');
+    }
+
+    // Get all modules for this course with their lessons
+    const modulesWithLessons = await Module.aggregate([
+      { $match: { courseId: course._id } },
+      {
+        $lookup: {
+          from: 'lessons',
+          localField: '_id',
+          foreignField: 'moduleId',
+          as: 'lessons'
+        }
+      },
+      {
+        $sort: { createdAt: 1 }
+      }
+    ]);
+
+    // Structure the modules with lessons
+    const structuredModules = modulesWithLessons.map(module => ({
+      _id: module._id,
+      courseId: module.courseId,
+      name: module.name,
+      lessons: module.lessons.map(lesson => ({
+        _id: lesson._id,
+        moduleId: lesson.moduleId,
+        name: lesson.name,
+        videoUrl: lesson.videoUrl,
+        text: lesson.text,
+        notes: lesson.notes || '',
+        resolutions: lesson.resolutions || [],
+        length: lesson.length || 0,
+        createdAt: lesson.createdAt
+      })),
+      createdAt: module.createdAt
+    }));
+
+    // Structure response
+    const responseData = {
+      _id: course._id,
+      campusId: course.campusId._id,
+      campusTitle: course.campusId.title,
+      campusSlug: course.campusId.slug,
+      campusImageUrl: course.campusId.imageUrl,
+      title: course.title,
+      imageUrl: course.imageUrl,
+      modules: structuredModules,
+      createdAt: course.createdAt
+    };
+
+    return successResponse(res, 200, 'Course retrieved successfully', responseData);
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve course', error.message);
+  }
+};
+
 module.exports = {
   createCourse,
   editCourse,
   deleteCourse,
   listCoursesByCampus,
   getCourseById,
-  getContinueLearning
+  getContinueLearning,
+  // Admin APIs
+  getAllCoursesAdmin,
+  getCourseByIdAdmin
 }; 
