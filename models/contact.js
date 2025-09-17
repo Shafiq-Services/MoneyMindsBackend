@@ -27,6 +27,25 @@ const contactSchema = new mongoose.Schema({
   message: {
     type: String,
     default: ''
+  },
+  status: {
+    type: String,
+    enum: ['unread', 'viewed', 'responded'],
+    default: 'unread'
+  },
+  adminReply: {
+    type: String,
+    default: ''
+  },
+  readAt: {
+    type: Date
+  },
+  respondedAt: {
+    type: Date
+  },
+  respondedByAdminId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, { timestamps: true });
 

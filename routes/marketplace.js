@@ -13,8 +13,8 @@ const {
 router.get("/get", authMiddleware, getMarketplaces);
 
 // Admin-only marketplace management routes
-router.post("/create", adminAuthMiddleware, createMarketplace);
-router.put("/edit/:id", adminAuthMiddleware, editMarketplace);
-router.delete("/delete/:id", adminAuthMiddleware, deleteMarketplace);
+router.post("/add", adminAuthMiddleware, createMarketplace);
+router.put("/edit", adminAuthMiddleware, editMarketplace);
+router.delete("/delete", adminAuthMiddleware, deleteMarketplace);
 
 module.exports = router;

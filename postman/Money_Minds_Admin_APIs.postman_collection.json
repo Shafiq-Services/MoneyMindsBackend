@@ -1,0 +1,1014 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Money Minds Admin APIs",
+		"description": "Complete Admin Dashboard APIs for Money Minds Backend",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "12345678"
+	},
+	"item": [
+		{
+			"name": "👤 Admin Authentication",
+			"item": [
+				{
+					"name": "Admin Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.status && response.data && response.data.token) {",
+									"        pm.environment.set('admin_token', response.data.token);",
+									"        console.log('Admin token saved to environment');",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"admin@moneyminds.com\",\n    \"password\": \"admin123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/user/admin-login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"user",
+								"admin-login"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "👥 User Management",
+			"item": [
+				{
+					"name": "Get All Users",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/user/list?page=1&limit=20&search=&role=&status=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"list"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (default: 1)"
+								},
+								{
+									"key": "limit",
+									"value": "20",
+									"description": "Items per page (default: 10, max: 100)"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search by name, email, or username"
+								},
+								{
+									"key": "role",
+									"value": "",
+									"description": "Filter by role: user, admin, moderator"
+								},
+								{
+									"key": "status",
+									"value": "",
+									"description": "Filter by status: active, inactive, banned, waitlist, card_declined"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/user/get?userId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"get"
+							],
+							"query": [
+								{
+									"key": "userId",
+									"value": "",
+									"description": "User ID to get details for"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"email\": \"john.doe@example.com\",\n    \"phone\": \"+1234567890\",\n    \"username\": \"johndoe\",\n    \"role\": \"user\",\n    \"status\": \"active\",\n    \"plan\": \"monthly\",\n    \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/user/add",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"add"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John Updated\",\n    \"lastName\": \"Doe\",\n    \"phone\": \"+1234567891\",\n    \"status\": \"active\",\n    \"role\": \"moderator\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/user/edit?userId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"edit"
+							],
+							"query": [
+								{
+									"key": "userId",
+									"value": "",
+									"description": "User ID to update"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Status",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"banned\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/user/status?userId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"status"
+							],
+							"query": [
+								{
+									"key": "userId",
+									"value": "",
+									"description": "User ID to update status for"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"role\": \"moderator\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/user/role?userId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"role"
+							],
+							"query": [
+								{
+									"key": "userId",
+									"value": "",
+									"description": "User ID to update role for"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/user/delete?userId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"delete"
+							],
+							"query": [
+								{
+									"key": "userId",
+									"value": "",
+									"description": "User ID to delete"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Statistics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/user/stats",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"user",
+								"stats"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📧 Email Management",
+			"item": [
+				{
+					"name": "Get All Emails",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/email/list?page=1&limit=10&status=&campaignType=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"email",
+								"list"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number"
+								},
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Items per page"
+								},
+								{
+									"key": "status",
+									"value": "",
+									"description": "Filter by status: draft, sending, sent, failed"
+								},
+								{
+									"key": "campaignType",
+									"value": "",
+									"description": "Filter by type: broadcast, targeted, automated"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Email Details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/email/get?emailId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"email",
+								"get"
+							],
+							"query": [
+								{
+									"key": "emailId",
+									"value": "",
+									"description": "Email ID to get details for"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Send Bulk Email",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"subject\": \"Welcome to Money Minds!\",\n    \"content\": \"Hello everyone,\\n\\nWe are excited to announce our new features!\\n\\nBest regards,\\nMoney Minds Team\",\n    \"userIds\": [\"USER_ID_1\", \"USER_ID_2\", \"USER_ID_3\"],\n    \"campaignType\": \"broadcast\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/email/send",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"email",
+								"send"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Users for Email Selection",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/email/users/list?page=1&limit=50&search=&role=&status=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"email",
+								"users",
+								"list"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search users by name, email"
+								},
+								{
+									"key": "role",
+									"value": "",
+									"description": "Filter by role"
+								},
+								{
+									"key": "status",
+									"value": "",
+									"description": "Filter by status"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Email Statistics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/email/stats",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"email",
+								"stats"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📞 Contact Management",
+			"item": [
+				{
+					"name": "Get All Contacts",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/contact/list",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"contact",
+								"list"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Contact Details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/contact/get?contactId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"contact",
+								"get"
+							],
+							"query": [
+								{
+									"key": "contactId",
+									"value": "",
+									"description": "Contact ID to get details for"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Contact Status",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"viewed\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/contact/status?contactId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"contact",
+								"status"
+							],
+							"query": [
+								{
+									"key": "contactId",
+									"value": "",
+									"description": "Contact ID to update status for"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reply to Contact",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reply\": \"Hello! Thank you for contacting us. We have reviewed your inquiry and here is our response...\\n\\nBest regards,\\nMoney Minds Support Team\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/contact/reply?contactId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"contact",
+								"reply"
+							],
+							"query": [
+								{
+									"key": "contactId",
+									"value": "",
+									"description": "Contact ID to reply to"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Contact Statistics",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/contact/stats",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"contact",
+								"stats"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🛒 Marketplace Management",
+			"item": [
+				{
+					"name": "Get All Marketplace Offers",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/marketplace/get?isActive=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"marketplace",
+								"get"
+							],
+							"query": [
+								{
+									"key": "isActive",
+									"value": "",
+									"description": "Filter by active status: true/false (leave empty for all active)"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Marketplace Offer",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"$250 Trading Bonus\",\n    \"description\": \"Get a $250 bonus when you sign up for our premium trading course\",\n    \"image\": \"https://example.com/banner.jpg\",\n    \"discount\": 250,\n    \"discountCode\": \"TRADE250\",\n    \"link\": \"https://trading-platform.com/signup\",\n    \"isActive\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/marketplace/add",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"marketplace",
+								"add"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Marketplace Offer",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"$300 Trading Bonus Updated\",\n    \"description\": \"Updated description for the trading bonus\",\n    \"discount\": 300,\n    \"isActive\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/marketplace/edit?marketplaceId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"marketplace",
+								"edit"
+							],
+							"query": [
+								{
+									"key": "marketplaceId",
+									"value": "",
+									"description": "Marketplace offer ID to update"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Marketplace Offer",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/marketplace/delete?marketplaceId=",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"marketplace",
+								"delete"
+							],
+							"query": [
+								{
+									"key": "marketplaceId",
+									"value": "",
+									"description": "Marketplace offer ID to delete"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🧪 Testing & Debug",
+			"item": [
+				{
+					"name": "Test Email System",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{admin_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/subscription/test-email",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"subscription",
+								"test-email"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5000/api",
+			"type": "string"
+		},
+		{
+			"key": "admin_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
