@@ -73,26 +73,35 @@ class SocketManager {
       // Also include Money Minds campus for all users (virtual campus)
       const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
       if (moneyMindsCampus) {
+        console.log(`📡 [Socket] Found Money Minds campus for user ${userId}: ${moneyMindsCampus.title} (${moneyMindsCampus._id})`);
         campusIds.push(moneyMindsCampus._id.toString());
+      } else {
+        console.log(`❌ [Socket] Money Minds campus not found for user ${userId}`);
       }
       
       const channels = await Channel.find({ campusId: { $in: campusIds } });
+      console.log(`📡 [Socket] User ${userId} joining ${channels.length} channels:`, channels.map(ch => `${ch.name} (${ch._id})`));
       channels.forEach((ch) => {
         socket.join(`channel:${ch._id}`);
+        console.log(`📡 [Socket] User ${userId} joined channel room: channel:${ch._id} (${ch.name})`);
       });
       // Typing events
       socket.on("user-typing", (data) => {
+        console.log(`⌨️ [Socket] User ${userId} typing in channel ${data?.channelId}`);
         if (data && data.channelId) {
           socket
             .to(`channel:${data.channelId}`)
             .emit("user-typing", { userId, channelId: data.channelId });
+          console.log(`⌨️ [Socket] Emitted typing event to channel:${data.channelId} from user ${userId}`);
         }
       });
       socket.on("typing-stopped", (data) => {
+        console.log(`⌨️ [Socket] User ${userId} stopped typing in channel ${data?.channelId}`);
         if (data && data.channelId) {
           socket
             .to(`channel:${data.channelId}`)
             .emit("typing-stopped", { userId, channelId: data.channelId });
+          console.log(`⌨️ [Socket] Emitted typing-stopped event to channel:${data.channelId} from user ${userId}`);
         }
       });
       // Exit channel list event

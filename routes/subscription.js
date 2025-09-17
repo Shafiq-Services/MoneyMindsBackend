@@ -30,4 +30,7 @@ router.delete('/billing-info/delete', authMiddleware, subscriptionController.del
 // Admin Routes
 router.put('/admin/edit-price', authMiddleware, subscriptionController.editSubscriptionPlanPrice);
 
+// Test Routes (for debugging)
+router.post('/test-email', authMiddleware, subscriptionController.testEmail);
+
 module.exports = router;
