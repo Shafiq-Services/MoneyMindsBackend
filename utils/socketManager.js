@@ -762,7 +762,17 @@ class SocketManager {
   async loadUserWatchProgress(userId) {
     try {
       console.log(`🔍 [Socket Manager] Loading watch progress for user: ${userId}`);
-      const watchProgressList = await WatchProgress.find({ userId });
+      
+      // Only load progress > 0% to reduce memory usage
+      const watchProgressList = await WatchProgress.find({ 
+        userId,
+        percentage: { $gt: 0 }
+      })
+      .select('videoId seconds percentage totalDuration lastUpdated contentType')
+      .sort({ lastUpdated: -1 })
+      .limit(500) // Limit to prevent memory issues
+      .lean();
+      
       console.log(`📊 [Socket Manager] Found ${watchProgressList.length} progress records in database`);
       
       // Initialize user's progress object if not exists
@@ -777,7 +787,8 @@ class SocketManager {
           seconds: progress.seconds,
           percentage: progress.percentage,
           totalDuration: progress.totalDuration,
-          lastUpdated: progress.lastUpdated.getTime()
+          lastUpdated: progress.lastUpdated ? progress.lastUpdated.getTime() : Date.now(),
+          contentType: progress.contentType || 'video'
         };
       });
       
@@ -787,7 +798,7 @@ class SocketManager {
       console.error('❌ [Socket Manager] Failed to load watch progress from database:', error.message);
       console.error('❌ [Socket Manager] Stack:', error.stack);
       // Initialize empty progress object if DB load fails
-      if (!this.videoProgress[userId]) {
+      if (!this.videoProgress[userId] ) {
         this.videoProgress[userId] = {};
       }
     }

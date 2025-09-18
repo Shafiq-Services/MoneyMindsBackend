@@ -281,18 +281,22 @@ const getContinueWatching = async (req, res) => {
   try {
     const userId = req.userId;
     
-    // Get all videos with watch progress > 0
+    // Load user progress from database if not in memory for better consistency
+    if (!socketManager.videoProgress[userId] || Object.keys(socketManager.videoProgress[userId]).length === 0) {
+      await socketManager.loadUserWatchProgress(userId);
+    }
+    
     const continueWatching = [];
     
-    // Check in-memory progress for films
+    // Check in-memory progress for films and episodes
     if (socketManager.videoProgress[userId]) {
       for (const [videoId, progress] of Object.entries(socketManager.videoProgress[userId])) {
         if (progress.percentage > 0) {
-          // Get video details
-          const video = await Video.findById(videoId);
+          // Get video details - more efficient query
+          const video = await Video.findById(videoId).lean();
           if (video) {
             continueWatching.push({
-              ...video.toObject(),
+              ...video,
               watchProgress: progress.percentage,
               watchSeconds: progress.seconds,
               totalDuration: progress.totalDuration,
@@ -311,7 +315,7 @@ const getContinueWatching = async (req, res) => {
       return new Date(b.lastWatchedAt || 0) - new Date(a.lastWatchedAt || 0);
     });
     
-    // Limit to 20 items
+    // Limit to 20 items as per original implementation
     const limitedResults = continueWatching.slice(0, 20);
 
     return res.status(200).json({
@@ -320,6 +324,7 @@ const getContinueWatching = async (req, res) => {
       continueWatching: limitedResults
     });
   } catch (err) {
+    console.error('❌ [Continue Watching] Error:', err.message);
     return errorResponse(res, 500, 'Failed to get continue watching content.', err.message);
   }
 };
