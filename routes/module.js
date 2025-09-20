@@ -7,7 +7,8 @@ const {
   listModulesByCourse,
   getModuleById,
   getAllModulesAdmin,
-  getModuleByIdAdmin
+  getModuleByIdAdmin,
+  getCourseModulesAdmin
 } = require('../controllers/moduleController');
 const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
@@ -23,5 +24,6 @@ router.delete('/', adminAuthMiddleware, deleteModule);
 // Admin APIs
 router.get('/admin/all', adminAuthMiddleware, getAllModulesAdmin);
 router.get('/admin/get', adminAuthMiddleware, getModuleByIdAdmin);
+router.get('/admin/course-modules', adminAuthMiddleware, getCourseModulesAdmin);
 
 module.exports = router; 

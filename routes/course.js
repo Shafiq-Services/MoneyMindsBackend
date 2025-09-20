@@ -8,7 +8,8 @@ const {
   getCourseById,
   getContinueLearning,
   getAllCoursesAdmin,
-  getCourseByIdAdmin
+  getCourseByIdAdmin,
+  getCampusCoursesAdmin
 } = require('../controllers/courseController');
 const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
@@ -25,5 +26,6 @@ router.delete('/', adminAuthMiddleware, deleteCourse);
 // Admin APIs
 router.get('/admin/all', adminAuthMiddleware, getAllCoursesAdmin);
 router.get('/admin/get', adminAuthMiddleware, getCourseByIdAdmin);
+router.get('/admin/campus-courses', adminAuthMiddleware, getCampusCoursesAdmin);
 
 module.exports = router; 

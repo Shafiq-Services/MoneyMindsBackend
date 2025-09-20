@@ -550,6 +550,60 @@ const getCourseByIdAdmin = async (req, res) => {
   }
 };
 
+// Get campus courses (Admin) - Simple list without pagination
+const getCampusCoursesAdmin = async (req, res) => {
+  try {
+    const { campusId } = req.query;
+
+    if (!campusId) {
+      return errorResponse(res, 400, 'Campus ID is required');
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(campusId)) {
+      return errorResponse(res, 400, 'Invalid campus ID format');
+    }
+
+    // Verify campus exists
+    const campus = await Campus.findById(campusId);
+    if (!campus) {
+      return errorResponse(res, 404, 'Campus not found');
+    }
+
+    // Get all courses for the campus
+    const courses = await Course.find({ campusId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Add module count to each course
+    const coursesWithStats = await Promise.all(courses.map(async (course) => {
+      const moduleCount = await Module.countDocuments({ courseId: course._id });
+      
+      return {
+        _id: course._id,
+        campusId: course.campusId,
+        title: course.title,
+        imageUrl: course.imageUrl,
+        moduleCount,
+        createdAt: course.createdAt
+      };
+    }));
+
+    const responseData = {
+      campus: {
+        _id: campus._id,
+        title: campus.title,
+        slug: campus.slug
+      },
+      courseList: coursesWithStats
+    };
+
+    return successResponse(res, 200, 'Campus courses retrieved successfully', responseData, 'campusCourses');
+  } catch (error) {
+    console.error('Get campus courses error:', error);
+    return errorResponse(res, 500, 'Failed to retrieve campus courses', error.message);
+  }
+};
+
 module.exports = {
   createCourse,
   editCourse,
@@ -559,5 +613,6 @@ module.exports = {
   getContinueLearning,
   // Admin APIs
   getAllCoursesAdmin,
-  getCourseByIdAdmin
+  getCourseByIdAdmin,
+  getCampusCoursesAdmin
 }; 

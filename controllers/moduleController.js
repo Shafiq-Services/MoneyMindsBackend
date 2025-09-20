@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Module = require('../models/module');
 const Course = require('../models/course');
 const Lesson = require('../models/lesson');
@@ -357,6 +358,67 @@ const getModuleByIdAdmin = async (req, res) => {
   }
 };
 
+// Get course modules (Admin) - Simple list without pagination
+const getCourseModulesAdmin = async (req, res) => {
+  try {
+    const { courseId } = req.query;
+
+    if (!courseId) {
+      return errorResponse(res, 400, 'Course ID is required');
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(courseId)) {
+      return errorResponse(res, 400, 'Invalid course ID format');
+    }
+
+    // Verify course exists and get campus info
+    const course = await Course.findById(courseId).populate('campusId', 'title slug');
+    if (!course) {
+      return errorResponse(res, 404, 'Course not found');
+    }
+
+    // Get all modules for the course
+    const modules = await Module.find({ courseId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Add lesson count and stats to each module
+    const modulesWithStats = await Promise.all(modules.map(async (module) => {
+      const lessonCount = await Lesson.countDocuments({ moduleId: module._id });
+      const videoLessons = await Lesson.countDocuments({ 
+        moduleId: module._id, 
+        videoUrl: { $exists: true, $ne: '' } 
+      });
+      const textLessons = lessonCount - videoLessons;
+      
+      return {
+        _id: module._id,
+        courseId: module.courseId,
+        name: module.name,
+        lessonCount,
+        videoLessons,
+        textLessons,
+        createdAt: module.createdAt
+      };
+    }));
+
+    const responseData = {
+      course: {
+        _id: course._id,
+        title: course.title,
+        campusId: course.campusId ? course.campusId._id : course.campusId,
+        campusTitle: course.campusId ? course.campusId.title : 'Unknown Campus'
+      },
+      moduleList: modulesWithStats
+    };
+
+    return successResponse(res, 200, 'Course modules retrieved successfully', responseData, 'courseModules');
+  } catch (error) {
+    console.error('Get course modules error:', error);
+    return errorResponse(res, 500, 'Failed to retrieve course modules', error.message);
+  }
+};
+
 module.exports = {
   createModule,
   editModule,
@@ -365,5 +427,6 @@ module.exports = {
   getModuleById,
   // Admin APIs
   getAllModulesAdmin,
-  getModuleByIdAdmin
+  getModuleByIdAdmin,
+  getCourseModulesAdmin
 }; 

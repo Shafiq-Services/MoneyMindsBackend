@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Lesson = require('../models/lesson');
 const Module = require('../models/module');
 const Course = require('../models/course');
@@ -413,6 +414,96 @@ const getLessonByIdAdmin = async (req, res) => {
   }
 };
 
+// Get module lessons (Admin) - Simple list without pagination
+const getModuleLessonsAdmin = async (req, res) => {
+  try {
+    const { moduleId } = req.query;
+
+    if (!moduleId) {
+      return errorResponse(res, 400, 'Module ID is required');
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(moduleId)) {
+      return errorResponse(res, 400, 'Invalid module ID format');
+    }
+
+    // Verify module exists and get course/campus info
+    const module = await Module.findById(moduleId)
+      .populate({
+        path: 'courseId',
+        populate: {
+          path: 'campusId',
+          select: 'title slug'
+        }
+      });
+
+    if (!module) {
+      return errorResponse(res, 404, 'Module not found');
+    }
+
+    // Get all lessons for the module
+    const lessons = await Lesson.find({ moduleId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Add lesson type and stats
+    const lessonsWithStats = lessons.map(lesson => {
+      const hasVideo = lesson.videoUrl && lesson.videoUrl.trim() !== '';
+      const hasText = lesson.text && lesson.text.trim() !== '';
+      
+      let lessonType = 'empty';
+      if (hasVideo && hasText) {
+        lessonType = 'mixed';
+      } else if (hasVideo) {
+        lessonType = 'video';
+      } else if (hasText) {
+        lessonType = 'text';
+      }
+
+      return {
+        _id: lesson._id,
+        moduleId: lesson.moduleId,
+        name: lesson.name,
+        videoUrl: lesson.videoUrl,
+        hasText: hasText,
+        lessonType,
+        length: lesson.length || 0,
+        resolutions: lesson.resolutions || [],
+        notes: lesson.notes || '',
+        createdAt: lesson.createdAt
+      };
+    });
+
+    // Calculate lesson statistics
+    const stats = {
+      total: lessonsWithStats.length,
+      video: lessonsWithStats.filter(l => l.lessonType === 'video').length,
+      text: lessonsWithStats.filter(l => l.lessonType === 'text').length,
+      mixed: lessonsWithStats.filter(l => l.lessonType === 'mixed').length,
+      empty: lessonsWithStats.filter(l => l.lessonType === 'empty').length,
+      totalVideoLength: lessonsWithStats.reduce((sum, l) => sum + (l.length || 0), 0)
+    };
+
+    const responseData = {
+      module: {
+        _id: module._id,
+        name: module.name,
+        courseId: module.courseId ? module.courseId._id : null,
+        courseTitle: module.courseId ? module.courseId.title : 'Unknown Course',
+        campusId: module.courseId && module.courseId.campusId ? module.courseId.campusId._id : null,
+        campusTitle: module.courseId && module.courseId.campusId ? module.courseId.campusId.title : 'Unknown Campus'
+      },
+      lessonList: lessonsWithStats,
+      stats
+    };
+
+    return successResponse(res, 200, 'Module lessons retrieved successfully', responseData, 'moduleLessons');
+  } catch (error) {
+    console.error('Get module lessons error:', error);
+    return errorResponse(res, 500, 'Failed to retrieve module lessons', error.message);
+  }
+};
+
 module.exports = {
   createLesson,
   editLesson,
@@ -421,5 +512,6 @@ module.exports = {
   getLessonById,
   // Admin APIs
   getAllLessonsAdmin,
-  getLessonByIdAdmin
+  getLessonByIdAdmin,
+  getModuleLessonsAdmin
 }; 

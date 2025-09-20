@@ -7,7 +7,8 @@ const {
   listLessonsByModule,
   getLessonById,
   getAllLessonsAdmin,
-  getLessonByIdAdmin
+  getLessonByIdAdmin,
+  getModuleLessonsAdmin
 } = require('../controllers/lessonController');
 const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
@@ -23,5 +24,6 @@ router.delete('/', adminAuthMiddleware, deleteLesson);
 // Admin APIs
 router.get('/admin/all', adminAuthMiddleware, getAllLessonsAdmin);
 router.get('/admin/get', adminAuthMiddleware, getLessonByIdAdmin);
+router.get('/admin/module-lessons', adminAuthMiddleware, getModuleLessonsAdmin);
 
 module.exports = router; 
