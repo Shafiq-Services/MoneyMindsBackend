@@ -11,11 +11,18 @@ const fs = require('fs');
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../temp/uploads');
-    // Ensure directory exists
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    // Only use existing temp directory - don't create missing directories
+    try {
+      if (!fs.existsSync(uploadDir)) {
+        const error = new Error('Upload temp directory does not exist. Please ensure temp/uploads directory is created.');
+        console.error('❌ [Upload] Temp directory missing:', uploadDir);
+        return cb(error, null);
+      }
+      cb(null, uploadDir);
+    } catch (error) {
+      console.error('❌ [Upload] Error checking upload directory:', error.message);
+      cb(error, null);
     }
-    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}-${file.originalname}`;
@@ -94,7 +101,7 @@ const getUploadFolder = (type, uploadType) => {
       'contact': 'files/contact',
       'landing': 'images/landing'
     };
-    return imageFolders[type] || 'images';
+    return imageFolders[type]; // No fallback - only predefined types allowed
   } else if (uploadType === 'file') {
     return 'files';
   }
@@ -111,16 +118,34 @@ const validateUploadType = (type, uploadType) => {
   return true; // Files don't need type validation
 };
 
-// Helper function to clean up temporary files
+// Helper function to clean up temporary files (enhanced)
 const cleanupTempFile = (filePath) => {
-  if (filePath && fs.existsSync(filePath)) {
-    fs.unlink(filePath, (err) => {
-      if (err) {
-        console.error('Failed to cleanup temp file:', err);
-      } else {
-        console.log('✅ Temp file cleaned up:', filePath);
-      }
-    });
+  if (!filePath) return;
+  
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlink(filePath, (err) => {
+        if (err) {
+          console.error('Failed to cleanup temp file:', err.message);
+        } else {
+          console.log('✅ Temp file cleaned up:', path.basename(filePath));
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('Error during temp file cleanup:', error.message);
+  }
+};
+
+// Safe socket manager wrapper to prevent upload failures
+const safeSocketBroadcast = (method, userId, data) => {
+  try {
+    if (userId && socketManager && typeof socketManager[method] === 'function') {
+      socketManager[method](userId, data);
+    }
+  } catch (error) {
+    console.warn(`[Upload] Socket broadcast failed (${method}):`, error.message);
+    // Continue upload process even if socket fails
   }
 };
 
@@ -130,6 +155,11 @@ const cleanupTempFile = (filePath) => {
 const unifiedUpload = async (req, res, uploadType) => {
   const uploadId = uuidv4();
   const type = req.query.type;
+  
+  // Validate userId from auth middleware
+  if (!req.userId) {
+    return errorResponse(res, 401, 'User authentication required');
+  }
   
   try {
     // Validate upload type and type parameter
@@ -143,6 +173,14 @@ const unifiedUpload = async (req, res, uploadType) => {
     
     if (uploadType === 'image' && !validateUploadType(type, uploadType)) {
       return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat, landing');
+    }
+    
+    // Additional validation: ensure folder mapping exists for image types
+    if (uploadType === 'image') {
+      const folder = getUploadFolder(type, uploadType);
+      if (!folder) {
+        return errorResponse(res, 400, `Unsupported image type: ${type}. Only predefined image types are allowed.`);
+      }
     }
 
     if (!req.file) {
@@ -198,8 +236,8 @@ const unifiedUpload = async (req, res, uploadType) => {
       ? `${folder}/${uploadId}/original${fileExt}`
       : `${folder}/${uploadId}${fileExt}`;
 
-    // Broadcast upload start
-    socketManager.broadcastUploadProgress(req.userId, {
+    // Broadcast upload start (with error handling)
+    safeSocketBroadcast('broadcastUploadProgress', req.userId, {
       uploadType,
       uploadId,
       ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
@@ -208,23 +246,32 @@ const unifiedUpload = async (req, res, uploadType) => {
       message: `Starting ${uploadType} upload...`
     });
 
-    // Upload file
-    const uploadResult = await uploadFileSmart(req.file.path, fileName, (progressData) => {
-      socketManager.broadcastUploadProgress(req.userId, {
-        uploadType,
-        uploadId,
-        ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
-        stage: 'uploading',
-        progress: progressData.progress,
-        message: progressData.message || `Uploading ${uploadType}...`,
-        ...progressData
-      });
-    });
+    // Upload file with timeout protection
+    console.log(`📤 [Upload] Starting ${uploadType} upload for user ${req.userId}: ${req.file.originalname}`);
+    
+    const uploadResult = await Promise.race([
+      uploadFileSmart(req.file.path, fileName, (progressData) => {
+        safeSocketBroadcast('broadcastUploadProgress', req.userId, {
+          uploadType,
+          uploadId,
+          ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
+          stage: 'uploading',
+          progress: progressData.progress,
+          message: progressData.message || `Uploading ${uploadType}...`,
+          ...progressData
+        });
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Upload timeout after 10 minutes')), 10 * 60 * 1000)
+      )
+    ]);
+    
+    console.log(`✅ [Upload] Upload completed for user ${req.userId}: ${uploadResult.fileUrl}`);
 
     // Handle video transcoding
     let transcodeResult = null;
     if (uploadType === 'video') {
-      socketManager.broadcastUploadProgress(req.userId, {
+      safeSocketBroadcast('broadcastUploadProgress', req.userId, {
         uploadType,
         uploadId,
         videoType: type,
@@ -236,7 +283,7 @@ const unifiedUpload = async (req, res, uploadType) => {
       const buffer = fs.readFileSync(req.file.path);
       transcodeResult = await transcodeToHLS(buffer, uploadId, type);
 
-      socketManager.broadcastUploadProgress(req.userId, {
+      safeSocketBroadcast('broadcastUploadProgress', req.userId, {
         uploadType,
         uploadId,
         videoType: type,
@@ -269,20 +316,30 @@ const unifiedUpload = async (req, res, uploadType) => {
       createdAt: new Date()
     };
 
-    // Broadcast completion
-    socketManager.broadcastUploadComplete(req.userId, {
+    // Broadcast completion (with error handling)
+    safeSocketBroadcast('broadcastUploadComplete', req.userId, {
       uploadType,
       uploadId,
       ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
       ...responseData
     });
+    
+    console.log(`🎉 [Upload] ${uploadType} upload successfully completed for user ${req.userId}`);
 
     return successResponse(res, 201, `${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} uploaded successfully`, responseData, uploadType);
 
   } catch (error) {
-    console.error(`${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} upload failed:`, error);
+    console.error(`❌ [Upload] ${uploadType} upload failed for user ${req.userId}:`, error.message);
+    console.error(`❌ [Upload] Error details:`, {
+      uploadId,
+      type,
+      fileName: req.file?.originalname,
+      fileSize: req.file?.size,
+      errorStack: error.stack
+    });
 
-    socketManager.broadcastUploadError(req.userId, {
+    // Broadcast error (with error handling)
+    safeSocketBroadcast('broadcastUploadError', req.userId, {
       uploadType,
       uploadId,
       ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
@@ -290,7 +347,18 @@ const unifiedUpload = async (req, res, uploadType) => {
       stage: 'upload'
     });
 
-    cleanupTempFile(req.file?.path);
+    // Ensure temp file cleanup
+    try {
+      cleanupTempFile(req.file?.path);
+    } catch (cleanupError) {
+      console.warn('Failed to cleanup temp file:', cleanupError.message);
+    }
+    
+    // Return appropriate error based on error type
+    if (error.message.includes('timeout')) {
+      return errorResponse(res, 408, 'Upload timeout', 'The upload took too long and was cancelled');
+    }
+    
     return errorResponse(res, 500, `${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} upload failed`, error.message);
   }
 };
