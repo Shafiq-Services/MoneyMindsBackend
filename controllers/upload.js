@@ -91,7 +91,8 @@ const getUploadFolder = (type, uploadType) => {
       'marketplace': 'images/marketplace',
       'feed': 'images/feeds',
       'chat': 'images/chat',
-      'contact': 'files/contact'
+      'contact': 'files/contact',
+      'landing': 'images/landing'
     };
     return imageFolders[type] || 'images';
   } else if (uploadType === 'file') {
@@ -105,7 +106,7 @@ const validateUploadType = (type, uploadType) => {
   if (uploadType === 'video') {
     return ['film', 'episode', 'lesson'].includes(type);
   } else if (uploadType === 'image') {
-    return ['campus', 'course', 'video', 'series', 'book', 'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat', 'contact'].includes(type);
+    return ['campus', 'course', 'video', 'series', 'book', 'user', 'avatar', 'banner', 'marketplace', 'feed', 'chat', 'contact', 'landing'].includes(type);
   }
   return true; // Files don't need type validation
 };
@@ -133,7 +134,7 @@ const unifiedUpload = async (req, res, uploadType) => {
   try {
     // Validate upload type and type parameter
     if (uploadType === 'image' && !type) {
-      return errorResponse(res, 400, 'Image type is required. Use query parameter: ?type=campus|course|video|series|book|user|avatar|banner|marketplace|feed|chat');
+      return errorResponse(res, 400, 'Image type is required. Use query parameter: ?type=campus|course|video|series|book|user|avatar|banner|marketplace|feed|chat|landing');
     }
     
     if (uploadType === 'video' && (!type || !validateUploadType(type, uploadType))) {
@@ -141,7 +142,7 @@ const unifiedUpload = async (req, res, uploadType) => {
     }
     
     if (uploadType === 'image' && !validateUploadType(type, uploadType)) {
-      return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat');
+      return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat, landing');
     }
 
     if (!req.file) {
