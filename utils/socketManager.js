@@ -36,21 +36,45 @@ class SocketManager {
     });
 
     this.io.on("connection", async (socket) => {
-      console.log("Socket connection attempt from:", socket.handshake.address);
+      console.log("🔌 [Socket] Connection attempt from:", socket.handshake.address);
+      console.log("🔌 [Socket] Connection headers:", socket.handshake.headers['user-agent']?.substring(0, 100) || 'Unknown');
       
       // JWT auth via query param or handshake
       let token = socket.handshake.auth?.token || socket.handshake.query?.token;
       let userId;
+      
+      console.log("🔐 [Socket] Token provided:", !!token);
+      console.log("🔐 [Socket] Token source:", socket.handshake.auth?.token ? 'auth' : socket.handshake.query?.token ? 'query' : 'none');
+      
       try {
         if (!token) {
-          console.log("No token provided in socket connection");
-          throw new Error("No token");
+          console.log("❌ [Socket] DISCONNECTION REASON: No token provided in socket connection");
+          console.log("❌ [Socket] Available auth methods:", Object.keys(socket.handshake.auth || {}));
+          console.log("❌ [Socket] Available query params:", Object.keys(socket.handshake.query || {}));
+          socket.emit('connection_error', { 
+            reason: 'NO_TOKEN', 
+            message: 'JWT token required for socket connection',
+            availableAuth: Object.keys(socket.handshake.auth || {}),
+            availableQuery: Object.keys(socket.handshake.query || {})
+          });
+          socket.disconnect();
+          return;
         }
+        
+        console.log("🔐 [Socket] Verifying JWT token...");
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.id;
         socket.userId = userId;
+        console.log("✅ [Socket] JWT verification successful for user:", userId);
       } catch (err) {
-        console.log("Socket authentication failed:", err.message);
+        console.log("❌ [Socket] DISCONNECTION REASON: JWT verification failed:", err.message);
+        console.log("❌ [Socket] Token preview:", token ? token.substring(0, 20) + '...' : 'null');
+        console.log("❌ [Socket] JWT_SECRET exists:", !!process.env.JWT_SECRET);
+        socket.emit('connection_error', { 
+          reason: 'INVALID_TOKEN', 
+          message: 'JWT token verification failed: ' + err.message,
+          tokenProvided: !!token 
+        });
         socket.disconnect();
         return;
       }
@@ -61,30 +85,65 @@ class SocketManager {
       };
       this.userContext[userId].socketId = socket.id;
       
-      // Load user's watch progress from database to memory cache
-      this.loadUserWatchProgress(userId);
+      console.log("📊 [Socket] Setting up user context and database operations...");
       
-      // Join personal room
-      socket.join(`user:${userId}`);
-      // Join all channel rooms for user's campuses
-      const campuses = await Campus.find({ "members.userId": userId });
-      const campusIds = campuses.map((c) => c._id.toString());
-      
-      // Also include Money Minds campus for all users (virtual campus)
-      const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
-      if (moneyMindsCampus) {
-        console.log(`📡 [Socket] Found Money Minds campus for user ${userId}: ${moneyMindsCampus.title} (${moneyMindsCampus._id})`);
-        campusIds.push(moneyMindsCampus._id.toString());
-      } else {
-        console.log(`❌ [Socket] Money Minds campus not found for user ${userId}`);
+      try {
+        // Load user's watch progress from database to memory cache
+        console.log("🔄 [Socket] Loading user watch progress...");
+        await this.loadUserWatchProgress(userId);
+        console.log("✅ [Socket] Watch progress loaded successfully");
+        
+        // Join personal room
+        socket.join(`user:${userId}`);
+        console.log("🏠 [Socket] Joined personal room: user:" + userId);
+        
+        // Join all channel rooms for user's campuses
+        console.log("🔍 [Socket] Finding user campuses...");
+        const campuses = await Campus.find({ "members.userId": userId }).maxTimeMS(5000);
+        console.log(`📍 [Socket] Found ${campuses.length} campuses for user ${userId}`);
+        const campusIds = campuses.map((c) => c._id.toString());
+        
+        // Also include Money Minds campus for all users (virtual campus)
+        console.log("🔍 [Socket] Looking for Money Minds campus...");
+        const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true }).maxTimeMS(5000);
+        if (moneyMindsCampus) {
+          console.log(`📡 [Socket] Found Money Minds campus for user ${userId}: ${moneyMindsCampus.title} (${moneyMindsCampus._id})`);
+          campusIds.push(moneyMindsCampus._id.toString());
+        } else {
+          console.log(`❌ [Socket] Money Minds campus not found for user ${userId}`);
+        }
+        
+        console.log("🔍 [Socket] Finding channels for campuses...");
+        const channels = await Channel.find({ campusId: { $in: campusIds } }).maxTimeMS(5000);
+        console.log(`📡 [Socket] User ${userId} joining ${channels.length} channels:`, channels.map(ch => `${ch.name} (${ch._id})`));
+        
+        channels.forEach((ch) => {
+          socket.join(`channel:${ch._id}`);
+          console.log(`📡 [Socket] User ${userId} joined channel room: channel:${ch._id} (${ch.name})`);
+        });
+        
+        console.log("✅ [Socket] Socket setup completed successfully for user:", userId);
+        
+        // Emit successful connection event to client
+        socket.emit('connection_success', {
+          userId: userId,
+          socketId: socket.id,
+          campuses: campuses.length,
+          channels: channels.length,
+          moneyMindsCampusFound: !!moneyMindsCampus
+        });
+        
+      } catch (dbError) {
+        console.error("❌ [Socket] DISCONNECTION REASON: Database error during setup:", dbError.message);
+        console.error("❌ [Socket] Stack trace:", dbError.stack);
+        socket.emit('connection_error', { 
+          reason: 'DATABASE_ERROR', 
+          message: 'Failed to initialize socket connection: ' + dbError.message,
+          userId: userId 
+        });
+        socket.disconnect();
+        return;
       }
-      
-      const channels = await Channel.find({ campusId: { $in: campusIds } });
-      console.log(`📡 [Socket] User ${userId} joining ${channels.length} channels:`, channels.map(ch => `${ch.name} (${ch._id})`));
-      channels.forEach((ch) => {
-        socket.join(`channel:${ch._id}`);
-        console.log(`📡 [Socket] User ${userId} joined channel room: channel:${ch._id} (${ch.name})`);
-      });
       // Typing events
       socket.on("user-typing", (data) => {
         console.log(`⌨️ [Socket] User ${userId} typing in channel ${data?.channelId}`);
@@ -763,7 +822,7 @@ class SocketManager {
     try {
       console.log(`🔍 [Socket Manager] Loading watch progress for user: ${userId}`);
       
-      // Only load progress > 0% to reduce memory usage
+      // Only load progress > 0% to reduce memory usage with timeout
       const watchProgressList = await WatchProgress.find({ 
         userId,
         percentage: { $gt: 0 }
@@ -771,6 +830,7 @@ class SocketManager {
       .select('videoId seconds percentage totalDuration lastUpdated contentType')
       .sort({ lastUpdated: -1 })
       .limit(500) // Limit to prevent memory issues
+      .maxTimeMS(5000) // 5 second timeout
       .lean();
       
       console.log(`📊 [Socket Manager] Found ${watchProgressList.length} progress records in database`);
@@ -782,7 +842,6 @@ class SocketManager {
       
       // Load each progress record into memory
       watchProgressList.forEach(progress => {
-        console.log(`📹 [Socket Manager] Loading progress: Video ${progress.videoId} - ${progress.percentage}% (${progress.seconds}s)`);
         this.videoProgress[userId][progress.videoId.toString()] = {
           seconds: progress.seconds,
           percentage: progress.percentage,
@@ -796,11 +855,17 @@ class SocketManager {
       console.log(`📊 [Socket Manager] User now has progress for ${Object.keys(this.videoProgress[userId]).length} videos in memory`);
     } catch (error) {
       console.error('❌ [Socket Manager] Failed to load watch progress from database:', error.message);
-      console.error('❌ [Socket Manager] Stack:', error.stack);
+      console.error('❌ [Socket Manager] Error details:', {
+        name: error.name,
+        code: error.code,
+        userId: userId
+      });
       // Initialize empty progress object if DB load fails
       if (!this.videoProgress[userId] ) {
         this.videoProgress[userId] = {};
       }
+      // Re-throw error to be caught by calling function
+      throw new Error(`Watch progress loading failed: ${error.message}`);
     }
   }
 
