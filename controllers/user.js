@@ -13,6 +13,7 @@ const mongoose = require("mongoose");
 const socketManager = require("../utils/socketManager");
 const { ensureUserInMoneyMindsCampus } = require("../utils/campusHelpers");
 const { addProgressToItem } = require("../utils/progressHelper");
+const { convertToFullUrl } = require('../utils/urlHelper');
 const bcrypt = require('bcrypt'); // Add bcrypt for password hashing
 
 // Helper function to format user data response consistently
