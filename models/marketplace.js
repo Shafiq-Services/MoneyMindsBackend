@@ -2,6 +2,14 @@ const mongoose = require("mongoose");
 
 const marketplaceSchema = new mongoose.Schema(
   {
+    title: {
+      type: String,
+      required: true,
+    },
+    description: {
+      type: String,
+      default: '',
+    },
     image: {
       type: String,
       required: true,
@@ -17,6 +25,10 @@ const marketplaceSchema = new mongoose.Schema(
     link: {
       type: String,
       required: true,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
     },
   },
   { timestamps: true }

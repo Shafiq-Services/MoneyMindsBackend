@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const subscriptionController = require('../controllers/subscriptionController');
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware } = require('../middlewares/auth');
 
 // Subscription Plans (Authentication required)
 router.get('/plans', authMiddleware, subscriptionController.getSubscriptionPlans);
@@ -29,5 +29,8 @@ router.delete('/billing-info/delete', authMiddleware, subscriptionController.del
 
 // Admin Routes
 router.put('/admin/edit-price', authMiddleware, subscriptionController.editSubscriptionPlanPrice);
+
+// Test Routes (for debugging)
+router.post('/test-email', authMiddleware, subscriptionController.testEmail);
 
 module.exports = router;

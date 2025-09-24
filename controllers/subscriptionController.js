@@ -147,13 +147,14 @@ exports.cancelSubscription = async (req, res) => {
 
     const user = await User.findById(userId);
 
-    // Cancel the subscription in Stripe
+    // Cancel the subscription in Stripe (schedule cancellation at period end)
     await stripe.subscriptions.update(subscriptionId, {
       cancel_at_period_end: true
     });
 
-    // Update our database
-    subscription.status = 'canceled';
+    // Update our database - keep as active until period ends, webhook will handle final cancellation
+    subscription.status = 'active'; // Keep active until period ends
+    subscription.cancelAtPeriodEnd = true; // Add flag to track scheduled cancellation
     await subscription.save();
 
     // Send cancellation email
@@ -167,7 +168,12 @@ exports.cancelSubscription = async (req, res) => {
       console.error('Failed to send cancellation email:', emailError);
     }
 
-    return successResponse(res, 200, 'Subscription canceled successfully');
+    return successResponse(res, 200, 'Subscription scheduled for cancellation at the end of your current billing period', {
+      subscriptionId: subscriptionId,
+      status: 'active',
+      cancelAtPeriodEnd: true,
+      accessUntil: subscription.currentPeriodEnd
+    }, 'subscriptionCancellation');
   } catch (error) {
     console.error('Cancel Subscription Error:', error);
     return errorResponse(res, 500, 'Failed to cancel subscription', error.message);
@@ -203,6 +209,7 @@ exports.getSubscriptionStatus = async (req, res) => {
         plan: subscription.plan,
         status: subscription.status,
         currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd || false,
         createdAt: subscription.createdAt
       }
     }, 'subscriptionStatus');
@@ -254,24 +261,30 @@ exports.handleStripeWebhook = async (req, res) => {
           if (wasIncomplete) {
             // First payment - send confirmation email
             try {
+              console.log(`📧 [Webhook] Sending welcome email to ${user.email} for subscription ${subscription.id}`);
               await sendEmail(
                 user.email,
                 'Welcome to Money Minds - Payment Confirmed!',
                 `Hello ${user.firstName},\n\nGreat news! Your payment has been processed successfully and your Money Minds ${dbSubscription.plan} subscription is now active.\n\nYou now have full access to:\n• All premium courses and content\n• Exclusive member benefits\n• 24/7 support\n\nYour next billing date is: ${new Date(subscription.current_period_end * 1000).toLocaleDateString()}\n\nWelcome to the Money Minds community!\n\nBest regards,\nThe Money Minds Team`
               );
+              console.log(`✅ [Webhook] Welcome email sent successfully to ${user.email}`);
             } catch (emailError) {
-              console.error('Failed to send confirmation email:', emailError);
+              console.error(`❌ [Webhook] Failed to send confirmation email to ${user.email}:`, emailError.message);
+              // Don't throw error to prevent webhook failure
             }
           } else {
             // Recurring payment - send renewal confirmation
             try {
+              console.log(`📧 [Webhook] Sending renewal email to ${user.email} for subscription ${subscription.id}`);
               await sendEmail(
                 user.email,
                 'Payment Confirmed - Your Subscription Renewed',
                 `Hello ${user.firstName},\n\nYour Money Minds ${dbSubscription.plan} subscription has been successfully renewed.\n\nPayment Details:\n• Amount: $${(invoice.amount_paid / 100).toFixed(2)}\n• Next billing date: ${new Date(subscription.current_period_end * 1000).toLocaleDateString()}\n\nThank you for continuing your journey with Money Minds!\n\nBest regards,\nThe Money Minds Team`
               );
+              console.log(`✅ [Webhook] Renewal email sent successfully to ${user.email}`);
             } catch (emailError) {
-              console.error('Failed to send renewal email:', emailError);
+              console.error(`❌ [Webhook] Failed to send renewal email to ${user.email}:`, emailError.message);
+              // Don't throw error to prevent webhook failure
             }
           }
           
@@ -324,6 +337,7 @@ exports.handleStripeWebhook = async (req, res) => {
       
       if (dbSubscription) {
         dbSubscription.status = 'canceled';
+        dbSubscription.cancelAtPeriodEnd = false; // Reset the flag
         await dbSubscription.save();
         
         // Get user details
@@ -461,13 +475,16 @@ exports.confirmPayment = async (req, res) => {
       
       // Send confirmation email
       try {
+        console.log(`📧 [ConfirmPayment] Sending welcome email to ${user.email} for subscription ${subscriptionId}`);
         await sendEmail(
           user.email,
           'Welcome to Money Minds - Payment Confirmed!',
           `Hello ${user.firstName},\n\nGreat news! Your payment has been processed successfully and your Money Minds ${subscription.plan} subscription is now active.\n\nYou now have full access to:\n• All premium courses and content\n• Exclusive member benefits\n• 24/7 support\n\nYour next billing date is: ${new Date(subscription.currentPeriodEnd).toLocaleDateString()}\n\nWelcome to the Money Minds community!\n\nBest regards,\nThe Money Minds Team`
         );
+        console.log(`✅ [ConfirmPayment] Welcome email sent successfully to ${user.email}`);
       } catch (emailError) {
-        console.error('Failed to send confirmation email:', emailError);
+        console.error(`❌ [ConfirmPayment] Failed to send confirmation email to ${user.email}:`, emailError.message);
+        // Don't throw error to prevent API failure
       }
 
       return successResponse(res, 200, 'Payment confirmed and subscription activated', {
@@ -729,6 +746,7 @@ exports.getCurrentSubscription = async (req, res) => {
         plan: subscription.plan,
         status: subscription.status,
         currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd || false,
         createdAt: subscription.createdAt
       }
     });
@@ -764,13 +782,47 @@ exports.addPaymentMethod = async (req, res) => {
   try {
     const { paymentMethodId } = req.body;
     if (!paymentMethodId) return errorResponse(res, 400, 'paymentMethodId is required');
+    
     const user = await User.findById(req.userId);
+    
+    // Get the payment method details from Stripe
+    const newPaymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+    
+    // Check for existing payment methods
+    const existingPaymentMethods = await stripe.paymentMethods.list({
+      customer: user.stripeCustomerId,
+      type: 'card'
+    });
+    
+    // Check for duplicates based on fingerprint and last4
+    const duplicate = existingPaymentMethods.data.find(pm => 
+      pm.card.fingerprint === newPaymentMethod.card.fingerprint ||
+      (pm.card.last4 === newPaymentMethod.card.last4 && 
+       pm.card.brand === newPaymentMethod.card.brand &&
+       pm.card.exp_month === newPaymentMethod.card.exp_month &&
+       pm.card.exp_year === newPaymentMethod.card.exp_year)
+    );
+    
+    if (duplicate) {
+      return errorResponse(res, 400, 'This card is already added to your account', {
+        duplicateCard: {
+          brand: duplicate.card.brand,
+          last4: duplicate.card.last4,
+          exp_month: duplicate.card.exp_month,
+          exp_year: duplicate.card.exp_year
+        }
+      });
+    }
+    
     await stripe.paymentMethods.attach(paymentMethodId, { customer: user.stripeCustomerId });
     await stripe.customers.update(user.stripeCustomerId, {
       invoice_settings: { default_payment_method: paymentMethodId }
     });
     return successResponse(res, 201, 'Payment method added successfully');
   } catch (err) {
+    if (err.type === 'StripeInvalidRequestError' && err.code === 'resource_missing') {
+      return errorResponse(res, 404, 'Payment method not found');
+    }
     return errorResponse(res, 500, 'Failed to add payment method', err.message);
   }
 };
@@ -854,21 +906,24 @@ exports.editBillingInfo = async (req, res) => {
       country 
     } = req.body;
 
+    // Get current customer data to preserve existing address fields
+    const currentCustomer = await stripe.customers.retrieve(user.stripeCustomerId);
+    
     // Prepare update object for Stripe
     const updateData = {};
     
-    if (name) updateData.name = name;
-    if (phone) updateData.phone = phone;
+    if (name !== undefined) updateData.name = name;
+    if (phone !== undefined) updateData.phone = phone;
     
-    // Only update address if at least one address field is provided
-    if (addressLine1 || addressLine2 || city || state || zip || country) {
+    // Handle address update - preserve existing fields if not provided
+    if (addressLine1 !== undefined || addressLine2 !== undefined || city !== undefined || state !== undefined || zip !== undefined || country !== undefined) {
       updateData.address = {
-        line1: addressLine1,
-        line2: addressLine2,
-        city: city,
-        state: state,
-        postal_code: zip,
-        country: country
+        line1: addressLine1 !== undefined ? addressLine1 : currentCustomer.address?.line1,
+        line2: addressLine2 !== undefined ? addressLine2 : currentCustomer.address?.line2,
+        city: city !== undefined ? city : currentCustomer.address?.city,
+        state: state !== undefined ? state : currentCustomer.address?.state,
+        postal_code: zip !== undefined ? zip : currentCustomer.address?.postal_code,
+        country: country !== undefined ? country : currentCustomer.address?.country
       };
     }
 
@@ -922,6 +977,39 @@ exports.deleteBillingInfo = async (req, res) => {
     return errorResponse(res, 500, 'Failed to delete billing info', err.message);
   }
 }; 
+
+/**
+ * Test email functionality (for debugging purposes)
+ * @param {Object} req - Express request object  
+ * @param {Object} res - Express response object
+ */
+exports.testEmail = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return errorResponse(res, 404, 'User not found');
+    }
+
+    console.log(`📧 [Test] Testing email functionality for user ${user.email}`);
+    
+    await sendEmail(
+      user.email,
+      'Test Email - Money Minds',
+      `Hello ${user.firstName},\n\nThis is a test email to verify that the Money Minds email system is working correctly.\n\nIf you received this email, the email configuration is working properly.\n\nTimestamp: ${new Date().toISOString()}\n\nBest regards,\nThe Money Minds Team`
+    );
+
+    return successResponse(res, 200, 'Test email sent successfully', {
+      recipient: user.email,
+      timestamp: new Date().toISOString()
+    }, 'testEmail');
+
+  } catch (error) {
+    console.error('❌ [Test] Email test failed:', error.message);
+    return errorResponse(res, 500, 'Failed to send test email', error.message);
+  }
+};
 
 /**
  * Get subscription plans from Stripe

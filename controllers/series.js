@@ -122,4 +122,153 @@ const getRandomSeries = async (req, res) => {
   }
 };
 
-module.exports = { addSeries, getRandomSeries }; 
+// ADMIN APIs - Get all series with pagination
+const getAllSeries = async (req, res) => {
+  try {
+    const pagination = parsePaginationParams(req.query);
+    
+    const pipeline = [
+      { $skip: pagination.skip },
+      { $limit: pagination.perPage },
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'videos',
+          let: { seriesId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$seriesId', '$$seriesId'] },
+                    { $eq: ['$type', 'episode'] }
+                  ]
+                }
+              }
+            },
+            { $count: 'total' }
+          ],
+          as: 'episodeCount'
+        }
+      },
+      {
+        $addFields: {
+          totalEpisodes: { $ifNull: [{ $arrayElemAt: ['$episodeCount.total', 0] }, 0] }
+        }
+      },
+      { $project: { episodeCount: 0 } }
+    ];
+    
+    const series = await Series.aggregate(pipeline);
+    const totalCount = await Series.countDocuments();
+    const totalPages = Math.ceil(totalCount / pagination.perPage);
+
+    return successResponse(res, 200, 'Series retrieved successfully.', {
+      series,
+      pagination: {
+        page: pagination.page,
+        perPage: pagination.perPage,
+        totalCount,
+        totalPages,
+        hasNext: pagination.page < totalPages,
+        hasPrev: pagination.page > 1
+      }
+    });
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to get series.', err.message);
+  }
+};
+
+// ADMIN API - Get single series by ID
+const getSeriesById = async (req, res) => {
+  try {
+    const { id } = req.query;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return errorResponse(res, 400, 'Invalid series ID.');
+    }
+
+    const series = await Series.findById(id);
+    if (!series) {
+      return errorResponse(res, 404, 'Series not found.');
+    }
+
+    // Get episodes for this series
+    const episodes = await Video.find({ 
+      seriesId: id, 
+      type: 'episode' 
+    }).sort({ seasonNumber: 1, episodeNumber: 1 });
+
+    return successResponse(res, 200, 'Series retrieved successfully.', {
+      series: { ...series.toObject(), episodes }
+    });
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to get series.', err.message);
+  }
+};
+
+// ADMIN API - Update series
+const updateSeries = async (req, res) => {
+  try {
+    const { id } = req.query;
+    const { title, description, posterUrl } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return errorResponse(res, 400, 'Invalid series ID.');
+    }
+
+    const series = await Series.findById(id);
+    if (!series) {
+      return errorResponse(res, 404, 'Series not found.');
+    }
+
+    // Update fields if provided
+    if (title !== undefined) series.title = title;
+    if (description !== undefined) series.description = description;
+    if (posterUrl !== undefined) series.posterUrl = posterUrl;
+
+    await series.save();
+
+    return successResponse(res, 200, 'Series updated successfully.', { series });
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to update series.', err.message);
+  }
+};
+
+// ADMIN API - Delete series
+const deleteSeries = async (req, res) => {
+  try {
+    const { id } = req.query;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return errorResponse(res, 400, 'Invalid series ID.');
+    }
+
+    const series = await Series.findById(id);
+    if (!series) {
+      return errorResponse(res, 404, 'Series not found.');
+    }
+
+    // Check if series has episodes
+    const episodeCount = await Video.countDocuments({ seriesId: id, type: 'episode' });
+    if (episodeCount > 0) {
+      return errorResponse(res, 400, `Cannot delete series. It has ${episodeCount} episodes. Delete episodes first.`);
+    }
+
+    await Series.findByIdAndDelete(id);
+
+    return successResponse(res, 200, 'Series deleted successfully.');
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to delete series.', err.message);
+  }
+};
+
+module.exports = { 
+  addSeries, 
+  getRandomSeries,
+  // Admin APIs
+  getAllSeries,
+  getSeriesById,
+  updateSeries,
+  deleteSeries
+}; 

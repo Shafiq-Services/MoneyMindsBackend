@@ -6,18 +6,26 @@ const {
   deleteCourse,
   listCoursesByCampus,
   getCourseById,
-  getContinueLearning
+  getContinueLearning,
+  getAllCoursesAdmin,
+  getCourseByIdAdmin,
+  getCampusCoursesAdmin
 } = require('../controllers/courseController');
-const authMiddleware = require('../middlewares/auth');
-router.use(authMiddleware);
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
-// All course routes require authentication
-router.get('/', getCourseById);
-router.get('/list', listCoursesByCampus);
-router.get('/continue-learning', getContinueLearning);
-//Admin Routes
-router.post('/', createCourse);
-router.put('/', editCourse);
-router.delete('/', deleteCourse);
+// Public course viewing routes (require user authentication)
+router.get('/', authMiddleware, getCourseById);
+router.get('/list', authMiddleware, listCoursesByCampus);
+router.get('/continue-learning', authMiddleware, getContinueLearning);
+
+// Admin-only course management routes
+router.post('/', adminAuthMiddleware, createCourse);
+router.put('/', adminAuthMiddleware, editCourse);
+router.delete('/', adminAuthMiddleware, deleteCourse);
+
+// Admin APIs
+router.get('/admin/all', adminAuthMiddleware, getAllCoursesAdmin);
+router.get('/admin/get', adminAuthMiddleware, getCourseByIdAdmin);
+router.get('/admin/campus-courses', adminAuthMiddleware, getCampusCoursesAdmin);
 
 module.exports = router; 

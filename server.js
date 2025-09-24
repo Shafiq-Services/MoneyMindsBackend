@@ -91,6 +91,10 @@ app.use("/api/feed", require('./routes/feed'));
 app.use("/api/banner", require('./routes/banner'));
 app.use("/api/notification", require('./routes/notification'));
 
+// Admin Routes
+app.use("/api/admin/email", require('./routes/emailAdmin'));
+app.use("/api/admin/user", require('./routes/userAdmin'));
+
 // Base route
 app.get("/", (req, res) => {
   res.send("Video Streaming Backend API with Upload Progress Tracking is running.");

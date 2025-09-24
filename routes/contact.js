@@ -1,16 +1,24 @@
 const router = require('express').Router();
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
 // Controllers
 const {
   submitContact,
-  getAllContacts
+  getAllContacts,
+  updateContactStatus,
+  replyToContact,
+  getContactById,
+  getContactStats
 } = require('../controllers/contactController');
 
 // Public route (no authentication required)
 router.post('/submit', submitContact);
 
-// Protected route (authentication required)
-router.get('/list', authMiddleware, getAllContacts);
+// Admin-only routes
+router.get('/list', adminAuthMiddleware, getAllContacts);
+router.get('/get', adminAuthMiddleware, getContactById);
+router.put('/status', adminAuthMiddleware, updateContactStatus);
+router.post('/reply', adminAuthMiddleware, replyToContact);
+router.get('/stats', adminAuthMiddleware, getContactStats);
 
 module.exports = router; 

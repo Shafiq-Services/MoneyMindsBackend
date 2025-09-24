@@ -13,14 +13,16 @@ const {
   modifyBio,
   modifyCountry,
   getUserProfile,
-  editUserProfile
+  editUserProfile,
+  adminLogin
 } = require('../controllers/user');
-const authMiddleware = require('../middlewares/auth');
+const { authMiddleware } = require('../middlewares/auth');
 
 // Public routes
 router.post('/signup', signUp);
 router.post('/send-otp', sendOtp);
 router.post('/verify-otp', verifyOtp);
+router.post('/admin-login', adminLogin);
 
 // Protected routes
 router.use(authMiddleware);

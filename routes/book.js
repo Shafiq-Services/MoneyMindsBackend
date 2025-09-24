@@ -1,5 +1,5 @@
 const router = require("express").Router();
-const authMiddleware = require("../middlewares/auth");
+const { authMiddleware, adminAuthMiddleware } = require("../middlewares/auth");
 
 //Controllers
 const {
@@ -10,11 +10,13 @@ const {
   getContinueReading,
 } = require("../controllers/book");
 
-//Routes
-router.post("/create", createBook);
-router.get("/get", getBooks);
-router.get("/continue-reading", authMiddleware, getContinueReading); // Protected route
-router.put("/edit/:id", editBook);
-router.delete("/delete/:id", deleteBook);
+// Public book viewing routes
+router.get("/get", authMiddleware, getBooks);
+router.get("/continue-reading", authMiddleware, getContinueReading);
+
+// Admin-only book management routes
+router.post("/create", adminAuthMiddleware, createBook);
+router.put("/edit/:id", adminAuthMiddleware, editBook);
+router.delete("/delete/:id", adminAuthMiddleware, deleteBook);
 
 module.exports = router;

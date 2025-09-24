@@ -5,7 +5,7 @@ const io = require('socket.io-client');
 // ==========================================
 
 const SETTINGS = {
-  SERVER_URL: 'http://localhost:3000',
+  SERVER_URL: 'http://localhost:5000',
   USER_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4M2YyN2IyYTRkNzdiNDRiMzc2ZTFhNCIsImlhdCI6MTc1MTcwNzE4MiwiZXhwIjoxNzUyMzExOTgyfQ.eZEKI3HRN-no3CviDXnu7wAWH7pnDI2S1qYoZRNnc1M',
   
   // Video Progress Testing

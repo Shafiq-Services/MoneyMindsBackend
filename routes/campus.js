@@ -8,20 +8,26 @@ const {
   leaveCampus,
   listCampuses,
   getUserCampuses,
-  getCampusById
+  getCampusById,
+  getAllCampusesAdmin,
+  getCampusByIdAdmin
 } = require('../controllers/campusController');
-const authMiddleware = require('../middlewares/auth');
-router.use(authMiddleware);
+const { authMiddleware, adminAuthMiddleware } = require('../middlewares/auth');
 
-router.get('/list', listCampuses);
-router.get('/user', getUserCampuses);
-router.get('/', getCampusById);
-router.post('/join', joinCampus);
-router.post('/leave', leaveCampus);
+// Public campus routes (require user authentication)
+router.get('/list', authMiddleware, listCampuses);
+router.get('/user', authMiddleware, getUserCampuses);
+router.get('/', authMiddleware, getCampusById);
+router.post('/join', authMiddleware, joinCampus);
+router.post('/leave', authMiddleware, leaveCampus);
 
-//Admin Routes
-router.post('/', createCampus);
-router.put('/', editCampus);
-router.delete('/', deleteCampus);
+// Admin-only campus management routes
+router.post('/', adminAuthMiddleware, createCampus);
+router.put('/', adminAuthMiddleware, editCampus);
+router.delete('/', adminAuthMiddleware, deleteCampus);
+
+// Admin APIs
+router.get('/admin/all', adminAuthMiddleware, getAllCampusesAdmin);
+router.get('/admin/get', adminAuthMiddleware, getCampusByIdAdmin);
 
 module.exports = router; 

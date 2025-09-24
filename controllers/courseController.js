@@ -282,217 +282,135 @@ const getContinueLearning = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const userId = req.userId;
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    
     console.log('🔍 [Continue Learning] Starting API call for user:', userId);
 
-    // Get all campuses where user is a member
-    const userCampuses = await Campus.find({ 'members.userId': userId });
-    const campusIds = userCampuses.map(campus => campus._id);
+    // Optimized campus query - get both user campuses and Money Minds campus in one query
+    const userCampuses = await Campus.find({ 
+      $or: [
+        { 'members.userId': userObjectId },
+        { isMoneyMindsCampus: true }
+      ]
+    }).select('_id title slug imageUrl isMoneyMindsCampus').lean();
     
-    // Also include Money Minds campus for all users (virtual campus)
-    const moneyMindsCampus = await Campus.findOne({ isMoneyMindsCampus: true });
-    if (moneyMindsCampus) {
-      campusIds.push(moneyMindsCampus._id);
-      userCampuses.push(moneyMindsCampus);
+    if (userCampuses.length === 0) {
+      console.log('❌ [Continue Learning] No campuses found for user');
+      return successResponse(res, 200, 'No campuses found for user', {
+        continueLearning: []
+      }, 'continueLearning');
     }
     
     console.log('🏫 [Continue Learning] User campuses found:', userCampuses.length);
-    console.log('🏫 [Continue Learning] Campus IDs:', campusIds.map(id => id.toString()));
+    const campusIds = userCampuses.map(campus => campus._id);
 
-    if (campusIds.length === 0) {
-      console.log('❌ [Continue Learning] No campuses found for user');
-      return successResponse(res, 200, 'No campuses found for user', {
-        continueLearning: [],
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalCount: 0,
-          totalPages: 0
-        }
+    // Load user progress from database if not in memory
+    if (!socketManager.videoProgress[userId] || Object.keys(socketManager.videoProgress[userId]).length === 0) {
+      console.log('⚠️ [Continue Learning] Loading progress from database...');
+      await socketManager.loadUserWatchProgress(userId);
+    }
+    
+    const userProgress = socketManager.videoProgress[userId] || {};
+    const progressVideoIds = Object.keys(userProgress);
+    
+    console.log('🎯 [Continue Learning] User has progress for:', progressVideoIds.length, 'videos');
+    
+    // Early return if no progress
+    if (progressVideoIds.length === 0) {
+      console.log('📊 [Continue Learning] No progress found, returning empty result');
+      return successResponse(res, 200, 'Continue learning courses retrieved successfully', {
+        continueLearning: []
       }, 'continueLearning');
     }
 
-    // Get all courses from user's campuses with modules and lessons
-    console.log('📚 [Continue Learning] Fetching courses from user campuses...');
-    const coursesWithProgress = await Course.aggregate([
-      { $match: { campusId: { $in: campusIds } } },
-      {
-        $lookup: {
-          from: 'modules',
-          localField: '_id',
-          foreignField: 'courseId',
-          as: 'modules'
-        }
-      },
-      {
-        $lookup: {
-          from: 'lessons',
-          localField: 'modules._id',
-          foreignField: 'moduleId',
-          as: 'lessons'
-        }
-      },
-      {
-        $addFields: {
-          totalVideos: { $size: '$lessons' },
-          videosWithProgress: {
-            $size: {
-              $filter: {
-                input: '$lessons',
-                as: 'lesson',
-                cond: {
-                  $and: [
-                    { $ne: ['$$lesson.videoUrl', null] },
-                    { $ne: ['$$lesson.videoUrl', ''] }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      },
-      {
-        $addFields: {
-          courseProgress: {
-            $cond: {
-              if: { $gt: ['$totalVideos', 0] },
-              then: {
-                $multiply: [
-                  {
-                    $divide: [
-                      {
-                        $size: {
-                          $filter: {
-                            input: '$lessons',
-                            as: 'lesson',
-                            cond: {
-                              $and: [
-                                { $ne: ['$$lesson.videoUrl', null] },
-                                { $ne: ['$$lesson.videoUrl', ''] },
-                                {
-                                  $gt: [
-                                    {
-                                      $ifNull: [
-                                        { $arrayElemAt: [{ $objectToArray: { $ifNull: ['$videoProgress', {}] } }, 0] },
-                                        0
-                                      ]
-                                    },
-                                    0
-                                  ]
-                                }
-                              ]
-                            }
-                          }
-                        }
-                      },
-                      '$totalVideos'
-                    ]
-                  },
-                  100
-                ]
-              },
-              else: 0
-            }
-          }
-        }
-      },
-      {
-        $match: {
-          $or: [
-            { totalVideos: { $gt: 0 } },
-            { courseProgress: { $gt: 0 } }
-          ]
-        }
-      },
-      {
-        $sort: { courseProgress: -1, createdAt: -1 }
-      }
-    ]);
-
-    // Process each course to calculate actual progress from socket manager
-    console.log('📊 [Continue Learning] Processing courses, total found:', coursesWithProgress.length);
-    console.log('🎯 [Continue Learning] User progress in socket manager:', socketManager.videoProgress[userId] ? Object.keys(socketManager.videoProgress[userId]).length : 0, 'videos');
+    // Find lessons with progress - more efficient than complex aggregation
+    const lessonsWithProgress = await Lesson.find({
+      _id: { $in: progressVideoIds.map(id => new mongoose.Types.ObjectId(id)) },
+      videoUrl: { $ne: '' }
+    }).select('_id moduleId name videoUrl length').lean();
     
-    // If no progress in memory, try loading from database
-    if (!socketManager.videoProgress[userId] || Object.keys(socketManager.videoProgress[userId]).length === 0) {
-      console.log('⚠️ [Continue Learning] No progress in memory, loading from database...');
-      await socketManager.loadUserWatchProgress(userId);
-      console.log('🔄 [Continue Learning] After loading from DB, user has progress for:', socketManager.videoProgress[userId] ? Object.keys(socketManager.videoProgress[userId]).length : 0, 'videos');
+    if (lessonsWithProgress.length === 0) {
+      console.log('📊 [Continue Learning] No lessons with progress found');
+      return successResponse(res, 200, 'Continue learning courses retrieved successfully', {
+        continueLearning: []
+      }, 'continueLearning');
     }
     
-    const processedCourses = coursesWithProgress.map(course => {
+    const moduleIds = [...new Set(lessonsWithProgress.map(lesson => lesson.moduleId))];
+    
+    // Get courses through modules
+    const modules = await Module.find({
+      _id: { $in: moduleIds }
+    }).select('_id courseId name').lean();
+    
+    const courseIds = [...new Set(modules.map(module => module.courseId))];
+    
+    // Get courses with basic info
+    const courses = await Course.find({
+      _id: { $in: courseIds },
+      campusId: { $in: campusIds }
+    }).select('_id title description imageUrl campusId createdAt').lean();
+    
+    // Process courses with progress calculation
+    const coursesWithProgress = [];
+    
+    for (const course of courses) {
+      // Get all lessons for this course
+      const courseModules = modules.filter(m => m.courseId.toString() === course._id.toString());
+      const courseModuleIds = courseModules.map(m => m._id);
+      
+      const allCourseLessons = await Lesson.find({
+        moduleId: { $in: courseModuleIds },
+        videoUrl: { $ne: '' }
+      }).select('_id name videoUrl length').lean();
+      
+      const totalVideos = allCourseLessons.length;
       let videosWithProgress = 0;
-      let totalVideos = 0;
       let latestProgressTime = 0;
-
-      console.log(`📖 [Continue Learning] Processing course: "${course.title}" (${course._id})`);
-      console.log(`📖 [Continue Learning] Course has ${course.lessons.length} lessons`);
-
-      // Count videos with progress from socket manager
-      course.lessons.forEach(lesson => {
-        if (lesson.videoUrl && lesson.videoUrl.trim() !== '') {
-          totalVideos++;
-          const progress = socketManager.videoProgress[userId] && 
-                          socketManager.videoProgress[userId][lesson._id.toString()];
-          if (progress && progress.percentage > 0) {
-            videosWithProgress++;
-            console.log(`📹 [Continue Learning] Found progress for lesson ${lesson._id}: ${progress.percentage}% (${progress.seconds}s)`);
-            // Track the most recent progress time using actual timestamp
-            latestProgressTime = Math.max(latestProgressTime, progress.lastUpdated || 0);
-          } else {
-            console.log(`📹 [Continue Learning] No progress for lesson ${lesson._id}`);
-          }
+      
+      // Calculate progress for this course
+      for (const lesson of allCourseLessons) {
+        const progress = userProgress[lesson._id.toString()];
+        if (progress && progress.percentage > 0) {
+          videosWithProgress++;
+          latestProgressTime = Math.max(latestProgressTime, progress.lastUpdated || 0);
         }
-      });
-
-      console.log(`📊 [Continue Learning] Course "${course.title}": ${videosWithProgress}/${totalVideos} videos with progress`);
-
-      // Calculate course progress percentage: (videos with progress / total videos) * 100
-      const courseProgress = totalVideos > 0 ? Math.round((videosWithProgress / totalVideos) * 100) : 0;
-
-      // Get campus info
-      const campus = userCampuses.find(c => c._id.toString() === course.campusId.toString());
-
-      return {
-        _id: course._id,
-        campusId: course.campusId,
-        campusTitle: campus ? campus.title : '',
-        campusSlug: campus ? campus.slug : '',
-        campusImageUrl: campus ? campus.imageUrl : '',
-        title: course.title,
-        imageUrl: course.imageUrl,
-        totalVideos: totalVideos,
-        videosWithProgress: videosWithProgress,
-        courseProgress: courseProgress,
-        createdAt: course.createdAt
-      };
+      }
+      
+      // Only include courses with actual progress
+      if (videosWithProgress > 0) {
+        const courseProgress = totalVideos > 0 ? Math.round((videosWithProgress / totalVideos) * 100) : 0;
+        const campus = userCampuses.find(c => c._id.toString() === course.campusId.toString());
+        
+        coursesWithProgress.push({
+          _id: course._id,
+          title: course.title,
+          description: course.description,
+          imageUrl: course.imageUrl,
+          campusId: course.campusId,
+          campusTitle: campus?.title || '',
+          campusSlug: campus?.slug || '',
+          campusImageUrl: campus?.imageUrl || '',
+          totalVideos,
+          videosWithProgress,
+          courseProgress,
+          latestProgressTime,
+          createdAt: course.createdAt
+        });
+      }
+    }
+    
+    // Sort by latest progress time, then by creation date
+    coursesWithProgress.sort((a, b) => {
+      if (b.latestProgressTime !== a.latestProgressTime) {
+        return b.latestProgressTime - a.latestProgressTime;
+      }
+      return new Date(b.createdAt) - new Date(a.createdAt);
     });
-
-    // Filter courses that have actual progress and sort by recent progress
-    console.log('🔍 [Continue Learning] Filtering courses with progress...');
-    const coursesWithActualProgress = processedCourses
-      .filter(course => {
-        const hasProgress = course.courseProgress > 0;
-        console.log(`📊 [Continue Learning] Course "${course.title}": ${hasProgress ? 'HAS' : 'NO'} progress (${course.courseProgress}%)`);
-        return hasProgress;
-      })
-      .sort((a, b) => {
-        // First sort by latest progress time (most recent first)
-        if (b.latestProgressTime !== a.latestProgressTime) {
-          return b.latestProgressTime - a.latestProgressTime;
-        }
-        // Then by course progress percentage (highest first)
-        if (b.courseProgress !== a.courseProgress) {
-          return b.courseProgress - a.courseProgress;
-        }
-        // Finally by creation date (newest first)
-        return new Date(b.createdAt) - new Date(a.createdAt);
-      });
-
-    console.log('✅ [Continue Learning] Final result:', coursesWithActualProgress.length, 'courses with progress');
-    console.log('📋 [Continue Learning] Returning courses:', coursesWithActualProgress.map(c => `"${c.title}" (${c.courseProgress}%)`));
-
+    
+    
     return successResponse(res, 200, 'Continue learning courses retrieved successfully', {
-      continueLearning: coursesWithActualProgress
+      continueLearning: coursesWithProgress
     }, 'continueLearning');
 
   } catch (error) {
@@ -502,11 +420,199 @@ const getContinueLearning = async (req, res) => {
   }
 };
 
+// ADMIN API - Get all courses with pagination (no membership restrictions)
+const getAllCoursesAdmin = async (req, res) => {
+  try {
+    const { page = 1, perPage = 10, campusId } = req.query;
+    const skip = (page - 1) * perPage;
+    
+    let matchCondition = {};
+    if (campusId && mongoose.Types.ObjectId.isValid(campusId)) {
+      matchCondition.campusId = new mongoose.Types.ObjectId(campusId);
+    }
+    
+    const pipeline = [
+      { $match: matchCondition },
+      { $skip: skip },
+      { $limit: parseInt(perPage) },
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'campuses',
+          localField: 'campusId',
+          foreignField: '_id',
+          as: 'campus'
+        }
+      },
+      {
+        $lookup: {
+          from: 'modules',
+          localField: '_id',
+          foreignField: 'courseId',
+          as: 'modules'
+        }
+      },
+      {
+        $addFields: {
+          campusTitle: { $arrayElemAt: ['$campus.title', 0] },
+          campusSlug: { $arrayElemAt: ['$campus.slug', 0] },
+          moduleCount: { $size: '$modules' }
+        }
+      },
+      { $project: { campus: 0, modules: 0 } }
+    ];
+    
+    const courses = await Course.aggregate(pipeline);
+    const totalCount = await Course.countDocuments(matchCondition);
+    const totalPages = Math.ceil(totalCount / perPage);
+
+    return successResponse(res, 200, 'Courses retrieved successfully.', {
+      courses,
+      pagination: {
+        page: parseInt(page),
+        perPage: parseInt(perPage),
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    });
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve courses', error.message);
+  }
+};
+
+// ADMIN API - Get single course by ID (no membership restrictions)
+const getCourseByIdAdmin = async (req, res) => {
+  try {
+    const { id } = req.query;
+
+    if (!id) {
+      return errorResponse(res, 400, 'Course ID is required');
+    }
+
+    const course = await Course.findById(id).populate('campusId', 'title slug imageUrl');
+    if (!course) {
+      return errorResponse(res, 404, 'Course not found');
+    }
+
+    // Get all modules for this course with their lessons
+    const modulesWithLessons = await Module.aggregate([
+      { $match: { courseId: course._id } },
+      {
+        $lookup: {
+          from: 'lessons',
+          localField: '_id',
+          foreignField: 'moduleId',
+          as: 'lessons'
+        }
+      },
+      {
+        $sort: { createdAt: 1 }
+      }
+    ]);
+
+    // Structure the modules with lessons
+    const structuredModules = modulesWithLessons.map(module => ({
+      _id: module._id,
+      courseId: module.courseId,
+      name: module.name,
+      lessons: module.lessons.map(lesson => ({
+        _id: lesson._id,
+        moduleId: lesson.moduleId,
+        name: lesson.name,
+        videoUrl: lesson.videoUrl,
+        text: lesson.text,
+        notes: lesson.notes || '',
+        resolutions: lesson.resolutions || [],
+        length: lesson.length || 0,
+        createdAt: lesson.createdAt
+      })),
+      createdAt: module.createdAt
+    }));
+
+    // Structure response
+    const responseData = {
+      _id: course._id,
+      campusId: course.campusId._id,
+      campusTitle: course.campusId.title,
+      campusSlug: course.campusId.slug,
+      campusImageUrl: course.campusId.imageUrl,
+      title: course.title,
+      imageUrl: course.imageUrl,
+      modules: structuredModules,
+      createdAt: course.createdAt
+    };
+
+    return successResponse(res, 200, 'Course retrieved successfully', responseData);
+  } catch (error) {
+    return errorResponse(res, 500, 'Failed to retrieve course', error.message);
+  }
+};
+
+// Get campus courses (Admin) - Simple list without pagination
+const getCampusCoursesAdmin = async (req, res) => {
+  try {
+    const { campusId } = req.query;
+
+    if (!campusId) {
+      return errorResponse(res, 400, 'Campus ID is required');
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(campusId)) {
+      return errorResponse(res, 400, 'Invalid campus ID format');
+    }
+
+    // Verify campus exists
+    const campus = await Campus.findById(campusId);
+    if (!campus) {
+      return errorResponse(res, 404, 'Campus not found');
+    }
+
+    // Get all courses for the campus
+    const courses = await Course.find({ campusId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Add module count to each course
+    const coursesWithStats = await Promise.all(courses.map(async (course) => {
+      const moduleCount = await Module.countDocuments({ courseId: course._id });
+      
+      return {
+        _id: course._id,
+        campusId: course.campusId,
+        title: course.title,
+        imageUrl: course.imageUrl,
+        moduleCount,
+        createdAt: course.createdAt
+      };
+    }));
+
+    const responseData = {
+      campus: {
+        _id: campus._id,
+        title: campus.title,
+        slug: campus.slug
+      },
+      courseList: coursesWithStats
+    };
+
+    return successResponse(res, 200, 'Campus courses retrieved successfully', responseData, 'campusCourses');
+  } catch (error) {
+    console.error('Get campus courses error:', error);
+    return errorResponse(res, 500, 'Failed to retrieve campus courses', error.message);
+  }
+};
+
 module.exports = {
   createCourse,
   editCourse,
   deleteCourse,
   listCoursesByCampus,
   getCourseById,
-  getContinueLearning
+  getContinueLearning,
+  // Admin APIs
+  getAllCoursesAdmin,
+  getCourseByIdAdmin,
+  getCampusCoursesAdmin
 }; 

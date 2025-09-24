@@ -1,4 +1,5 @@
 const router = require("express").Router();
+const { authMiddleware, adminAuthMiddleware } = require("../middlewares/auth");
 
 //Controllers
 const {
@@ -8,10 +9,12 @@ const {
   deleteMarketplace,
 } = require("../controllers/marketplace");
 
-//Routes
-router.post("/create", createMarketplace);
-router.get("/get", getMarketplaces);
-router.put("/edit/:id", editMarketplace);
-router.delete("/delete/:id", deleteMarketplace);
+// Public marketplace viewing route
+router.get("/get", authMiddleware, getMarketplaces);
+
+// Admin-only marketplace management routes
+router.post("/add", adminAuthMiddleware, createMarketplace);
+router.put("/edit", adminAuthMiddleware, editMarketplace);
+router.delete("/delete", adminAuthMiddleware, deleteMarketplace);
 
 module.exports = router;

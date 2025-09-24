@@ -20,6 +20,7 @@ const subscriptionSchema = new mongoose.Schema({
     },
     currentPeriodEnd: { type: Date, required: true },
     recurring: { type: Boolean, default: true },
+    cancelAtPeriodEnd: { type: Boolean, default: false },
     metadata: mongoose.Schema.Types.Mixed,
     incompletePaymentReminderSent: { type: Boolean, default: false }
   }, { timestamps: true });
