@@ -14,14 +14,20 @@ const bookSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    content: {
-      type: String,
-      required: true,
-    },
-    isOpened: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    }]
+    chapters: [
+      {
+        number: { type: Number, required: true },
+        pages: { type: String, default: "" },
+        description: { type: String, default: "" },
+        content: { type: String, required: true },
+      },
+    ],
+    isOpened: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   { timestamps: true }
 );

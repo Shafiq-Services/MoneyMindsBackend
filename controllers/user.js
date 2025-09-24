@@ -499,7 +499,7 @@ const getUserProfile = async (req, res) => {
         title: book.title,
         author: book.author,
         image: book.image,
-        content: book.content,
+        chapters: book.chapters,
         createdAt: book.createdAt
       };
     }

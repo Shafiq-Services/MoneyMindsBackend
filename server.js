@@ -16,6 +16,8 @@ const subscriptionRoutes = require('./routes/subscription');
 const app = express();
 const server = http.createServer(app);
 
+console.log("Server is running");
+
 // Configure server for large file uploads
 server.timeout = 7200000; // 2 hours
 server.maxConnections = 1000;

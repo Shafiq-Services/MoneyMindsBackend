@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { 
   checkSubscriptionExpiryWarnings,
-  // sendIncompletePaymentReminder,
+  sendIncompletePaymentReminder,
   sendPostCancellationFollowUps,
   sendPostExpiryEmail
 } = require('../controllers/subscriptionController');
