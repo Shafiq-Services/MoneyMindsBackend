@@ -3,6 +3,7 @@ const Subscription = require('../models/subscription');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { parsePaginationParams } = require('../utils/paginationHelper');
 const bcrypt = require('bcrypt');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 /**
  * Get all users with pagination and filtering
@@ -119,7 +120,7 @@ const getUserById = async (req, res) => {
       email: user.email,
       username: user.username,
       phone: user.phone,
-      avatar: user.avatar,
+      avatar: convertToFullUrl(user.avatar),
       bio: user.bio,
       country: user.country,
       role: user.role,

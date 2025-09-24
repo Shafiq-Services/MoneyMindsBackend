@@ -6,6 +6,7 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const { addVideoResolutionsToArray } = require('../utils/videoResolutions');
 const { addProgressToItem } = require('../utils/progressHelper');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 const getRandomFilms = async (req, res) => {
   try {
@@ -30,13 +31,21 @@ const getRandomFilms = async (req, res) => {
     // Add resolutions to all films efficiently
     const filmsWithResolutions = addVideoResolutionsToArray(filmsWithProgress);
     
+    // Convert URLs to full Azure CDN format
+    const filmsWithConvertedUrls = filmsWithResolutions.map(film => ({
+      ...film,
+      videoUrl: convertToFullUrl(film.videoUrl),
+      posterUrl: convertToFullUrl(film.posterUrl),
+      originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
+    }));
+    
     const totalCount = await Video.countDocuments({ type: 'film' });
     const totalPages = Math.ceil(totalCount / pagination.perPage);
 
     return res.status(200).json({
       status: true,
       message: 'Random films retrieved successfully.',
-      films: filmsWithResolutions,
+      films: filmsWithConvertedUrls,
       pagination: {
         page: pagination.page,
         perPage: pagination.perPage,
@@ -111,10 +120,18 @@ const getPopularFilms = async (req, res) => {
     // Add resolutions to all films efficiently
     const filmsWithResolutions = addVideoResolutionsToArray(filmsWithProgress);
 
+    // Convert URLs to full Azure CDN format
+    const filmsWithConvertedUrls = filmsWithResolutions.map(film => ({
+      ...film,
+      videoUrl: convertToFullUrl(film.videoUrl),
+      posterUrl: convertToFullUrl(film.posterUrl),
+      originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
+    }));
+
     return res.status(200).json({
       status: true,
       message: 'Popular films retrieved successfully.',
-      films: filmsWithResolutions
+      films: filmsWithConvertedUrls
     });
   } catch (err) {
     return errorResponse(res, 500, 'Failed to get popular films.', err.message);
@@ -134,11 +151,20 @@ const getAllFilms = async (req, res) => {
     ];
     
     const films = await Video.aggregate(pipeline);
+    
+    // Convert URLs to full Azure CDN format
+    const filmsWithConvertedUrls = films.map(film => ({
+      ...film,
+      videoUrl: convertToFullUrl(film.videoUrl),
+      posterUrl: convertToFullUrl(film.posterUrl),
+      originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
+    }));
+    
     const totalCount = await Video.countDocuments({ type: 'film' });
     const totalPages = Math.ceil(totalCount / pagination.perPage);
 
     return successResponse(res, 200, 'Films retrieved successfully.', {
-      films,
+      films: filmsWithConvertedUrls,
       pagination: {
         page: pagination.page,
         perPage: pagination.perPage,
@@ -167,7 +193,15 @@ const getFilmById = async (req, res) => {
       return errorResponse(res, 404, 'Film not found.');
     }
 
-    return successResponse(res, 200, 'Film retrieved successfully.', { film });
+    // Convert URLs to full Azure CDN format
+    const filmWithConvertedUrls = {
+      ...film.toObject(),
+      videoUrl: convertToFullUrl(film.videoUrl),
+      posterUrl: convertToFullUrl(film.posterUrl),
+      originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
+    };
+
+    return successResponse(res, 200, 'Film retrieved successfully.', { film: filmWithConvertedUrls });
   } catch (err) {
     return errorResponse(res, 500, 'Failed to get film.', err.message);
   }

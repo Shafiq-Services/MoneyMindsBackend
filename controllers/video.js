@@ -7,6 +7,7 @@ const socketManager = require('../utils/socketManager');
 const { fetchResolutionsFromVideoUrl } = require('../utils/videoResolutions');
 const { calculateVideoDuration } = require('../utils/videoDuration');
 const { addProgressToItem } = require('../utils/progressHelper');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 
 
@@ -102,8 +103,8 @@ const postVideo = async (req, res) => {
       title: videoWithProgress.title,
       description: videoWithProgress.description,
       type: videoWithProgress.type,
-      videoUrl: videoWithProgress.videoUrl,
-      posterUrl: videoWithProgress.posterUrl,
+      videoUrl: convertToFullUrl(videoWithProgress.videoUrl),
+      posterUrl: convertToFullUrl(videoWithProgress.posterUrl),
       length: videoWithProgress.length,
       createdAt: videoWithProgress.createdAt,
       resolutions: videoWithProgress.resolutions,
@@ -156,9 +157,9 @@ const getRandomSuggestion = async (req, res) => {
             title: film.title || '',
             description: film.description || '',
             type: film.type,
-            videoUrl: film.videoUrl,
-            posterUrl: film.posterUrl || '',
-            originalVideoUrl: film.originalVideoUrl,
+            videoUrl: convertToFullUrl(film.videoUrl),
+            posterUrl: convertToFullUrl(film.posterUrl || ''),
+            originalVideoUrl: convertToFullUrl(film.originalVideoUrl),
             resolutions: film.resolutions || [],
             length: film.length || 0,
             createdAt: film.createdAt,
@@ -318,10 +319,18 @@ const getContinueWatching = async (req, res) => {
     // Limit to 20 items as per original implementation
     const limitedResults = continueWatching.slice(0, 20);
 
+    // Convert URLs to full Azure CDN format
+    const resultsWithConvertedUrls = limitedResults.map(video => ({
+      ...video,
+      videoUrl: convertToFullUrl(video.videoUrl),
+      posterUrl: convertToFullUrl(video.posterUrl),
+      originalVideoUrl: convertToFullUrl(video.originalVideoUrl)
+    }));
+
     return res.status(200).json({
       status: true,
       message: 'Continue watching content retrieved successfully.',
-      continueWatching: limitedResults
+      continueWatching: resultsWithConvertedUrls
     });
   } catch (err) {
     console.error('❌ [Continue Watching] Error:', err.message);

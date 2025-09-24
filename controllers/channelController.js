@@ -7,6 +7,7 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const { paginateQuery } = require('../utils/pagination');
 const socketManager = require('../utils/socketManager');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 // POST /channel/add
 const addChannel = async (req, res) => {
@@ -218,11 +219,11 @@ const getChannelMessages = async (req, res) => {
       firstName: msg.userId?.firstName,
       lastName: msg.userId?.lastName,
       username: msg.userId?.username,
-      avatar: msg.userId?.avatar,
+      avatar: convertToFullUrl(msg.userId?.avatar),
       bio: msg.userId?.bio || '',
       country: msg.userId?.country || '',
       text: msg.text,
-      mediaUrl: msg.mediaUrl,
+      mediaUrl: convertToFullUrl(msg.mediaUrl),
       mediaType: msg.mediaType,
       isMe: msg.userId?._id?.toString() === userId,
       createdAt: msg.createdAt

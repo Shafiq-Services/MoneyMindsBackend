@@ -8,6 +8,7 @@ const socketManager = require('../utils/socketManager');
 const { addVideoResolutions, fetchResolutionsFromVideoUrl } = require('../utils/videoResolutions');
 const { calculateVideoDuration } = require('../utils/videoDuration');
 const { addProgressToItem } = require('../utils/progressHelper');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 const createLesson = async (req, res) => {
   try {
@@ -75,7 +76,7 @@ const createLesson = async (req, res) => {
       courseId: module.courseId._id,
       campusId: module.courseId.campusId._id,
       name: lesson.name,
-      videoUrl: lesson.videoUrl,
+      videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text,
       notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],
@@ -152,7 +153,7 @@ const editLesson = async (req, res) => {
       courseId: lesson.moduleId.courseId._id,
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
-      videoUrl: lesson.videoUrl,
+      videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text,
       notes: lesson.notes || '', // Ensure notes is always a string
       resolutions: lesson.resolutions || [],
@@ -223,7 +224,7 @@ const listLessonsByModule = async (req, res) => {
         courseId: module.courseId._id,
         campusId: module.courseId.campusId,
         name: lesson.name,
-        videoUrl: lesson.videoUrl,
+        videoUrl: convertToFullUrl(lesson.videoUrl),
         text: lesson.text || '', // Include text field
         notes: lesson.notes || '', // Ensure notes is always a string
         resolutions: lesson.resolutions || [],
@@ -277,7 +278,7 @@ const getLessonById = async (req, res) => {
       courseId: lesson.moduleId.courseId._id,
       campusId: lesson.moduleId.courseId.campusId,
       name: lesson.name,
-      videoUrl: lesson.videoUrl,
+      videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text || '', // Include text field
       notes: lesson.notes || '', // Ensure notes is always a string
       resolutions: lesson.resolutions || [],
@@ -400,7 +401,7 @@ const getLessonByIdAdmin = async (req, res) => {
       campusTitle: lesson.moduleId.courseId.campusId.title,
       campusSlug: lesson.moduleId.courseId.campusId.slug,
       name: lesson.name,
-      videoUrl: lesson.videoUrl,
+      videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text || '',
       notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],
@@ -464,7 +465,7 @@ const getModuleLessonsAdmin = async (req, res) => {
         _id: lesson._id,
         moduleId: lesson.moduleId,
         name: lesson.name,
-        videoUrl: lesson.videoUrl,
+        videoUrl: convertToFullUrl(lesson.videoUrl),
         hasText: hasText,
         lessonType,
         length: lesson.length || 0,

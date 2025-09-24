@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const { addProgressToItem } = require('../utils/progressHelper');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 // POST /api/series
 // Body: { title, description, posterUrl }
@@ -90,13 +91,19 @@ const getRandomSeries = async (req, res) => {
     
     const series = await Series.aggregate(pipeline);
     
-    // Add watch progress to each episode
+    // Add watch progress to each episode and convert URLs
     const seriesWithProgress = series.map(seriesItem => ({
       ...seriesItem,
+      posterUrl: convertToFullUrl(seriesItem.posterUrl),
       seasons: seriesItem.seasons.map(season => ({
         ...season,
         episodes: season.episodes.map(episode => {
-          return addProgressToItem(req.userId, episode);
+          const episodeWithProgress = addProgressToItem(req.userId, episode);
+          return {
+            ...episodeWithProgress,
+            videoUrl: convertToFullUrl(episodeWithProgress.videoUrl),
+            posterUrl: convertToFullUrl(episodeWithProgress.posterUrl)
+          };
         })
       }))
     }));
@@ -163,8 +170,14 @@ const getAllSeries = async (req, res) => {
     const totalCount = await Series.countDocuments();
     const totalPages = Math.ceil(totalCount / pagination.perPage);
 
+    // Convert posterUrl in each series
+    const seriesWithConvertedUrls = series.map(seriesItem => ({
+      ...seriesItem,
+      posterUrl: convertToFullUrl(seriesItem.posterUrl)
+    }));
+
     return successResponse(res, 200, 'Series retrieved successfully.', {
-      series,
+      series: seriesWithConvertedUrls,
       pagination: {
         page: pagination.page,
         perPage: pagination.perPage,
@@ -199,8 +212,19 @@ const getSeriesById = async (req, res) => {
       type: 'episode' 
     }).sort({ seasonNumber: 1, episodeNumber: 1 });
 
+    // Convert URLs in series and episodes
+    const seriesWithConvertedUrls = {
+      ...series.toObject(),
+      posterUrl: convertToFullUrl(series.posterUrl),
+      episodes: episodes.map(episode => ({
+        ...episode.toObject(),
+        videoUrl: convertToFullUrl(episode.videoUrl),
+        posterUrl: convertToFullUrl(episode.posterUrl)
+      }))
+    };
+
     return successResponse(res, 200, 'Series retrieved successfully.', {
-      series: { ...series.toObject(), episodes }
+      series: seriesWithConvertedUrls
     });
   } catch (err) {
     return errorResponse(res, 500, 'Failed to get series.', err.message);

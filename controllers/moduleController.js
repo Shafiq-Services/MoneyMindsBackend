@@ -7,6 +7,7 @@ const { getCampusWithMembershipCheck } = require('../utils/campusHelpers');
 const socketManager = require('../utils/socketManager');
 const { addVideoResolutions } = require('../utils/videoResolutions');
 const { addProgressToItem } = require('../utils/progressHelper');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 const createModule = async (req, res) => {
   try {
@@ -150,7 +151,7 @@ const listModulesByCourse = async (req, res) => {
           courseId: course._id,
           campusId: course.campusId,
           name: lesson.name,
-          videoUrl: lesson.videoUrl,
+          videoUrl: convertToFullUrl(lesson.videoUrl),
           notes: lesson.notes || '',
           resolutions: lesson.resolutions || [],
           length: lesson.length || 0,
@@ -207,7 +208,7 @@ const getModuleById = async (req, res) => {
         courseId: module.courseId._id,
         campusId: module.courseId.campusId,
         name: lesson.name,
-        videoUrl: lesson.videoUrl,
+        videoUrl: convertToFullUrl(lesson.videoUrl),
         notes: lesson.notes || '',
         resolutions: lesson.resolutions || [],
         createdAt: lesson.createdAt,
@@ -331,7 +332,7 @@ const getModuleByIdAdmin = async (req, res) => {
       _id: lesson._id,
       moduleId: lesson.moduleId,
       name: lesson.name,
-      videoUrl: lesson.videoUrl,
+      videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text,
       notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],

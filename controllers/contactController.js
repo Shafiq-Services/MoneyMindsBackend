@@ -1,6 +1,7 @@
 const Contact = require('../models/contact');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const sendEmail = require('../utils/sendEmail');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 /**
  * @description Submit Contact Form
@@ -63,7 +64,7 @@ const submitContact = async (req, res) => {
       firstName: contact.firstName,
       lastName: contact.lastName,
       description: contact.description,
-      fileUrl: contact.fileUrl,
+      fileUrl: convertToFullUrl(contact.fileUrl),
       message: contact.message,
       createdAt: contact.createdAt
     };
@@ -93,7 +94,7 @@ const getAllContacts = async (req, res) => {
       firstName: contact.firstName,
       lastName: contact.lastName,
       description: contact.description,
-      fileUrl: contact.fileUrl,
+      fileUrl: convertToFullUrl(contact.fileUrl),
       message: contact.message,
       createdAt: contact.createdAt
     }));
@@ -260,7 +261,7 @@ const getContactById = async (req, res) => {
       firstName: contact.firstName,
       lastName: contact.lastName,
       description: contact.description,
-      fileUrl: contact.fileUrl,
+      fileUrl: convertToFullUrl(contact.fileUrl),
       message: contact.message,
       status: contact.status,
       adminReply: contact.adminReply,

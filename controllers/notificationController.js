@@ -4,6 +4,7 @@ const User = require('../models/user');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 // GET /notification/list?category=...&isRead=...
 const getUserNotifications = async (req, res) => {
@@ -71,9 +72,46 @@ const getUserNotifications = async (req, res) => {
       notifications = notifications.filter(n => n.isRead === isReadBool);
     }
 
+    // Helper function to recursively convert URLs in nested objects
+    const convertUrlsInObject = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      
+      const converted = { ...obj };
+      
+      // Convert URL fields
+      ['imageUrl', 'posterUrl', 'videoUrl', 'originalVideoUrl', 'mainIconUrl', 'campusIconUrl'].forEach(field => {
+        if (converted[field] && typeof converted[field] === 'string') {
+          converted[field] = convertToFullUrl(converted[field]);
+        }
+      });
+      
+      // Recursively convert nested objects
+      Object.keys(converted).forEach(key => {
+        if (converted[key] && typeof converted[key] === 'object' && !Array.isArray(converted[key])) {
+          converted[key] = convertUrlsInObject(converted[key]);
+        } else if (Array.isArray(converted[key])) {
+          converted[key] = converted[key].map(item => 
+            typeof item === 'object' && item !== null ? convertUrlsInObject(item) : item
+          );
+        }
+      });
+      
+      return converted;
+    };
+
+    // Convert URLs to full Azure CDN format
+    const notificationsWithConvertedUrls = notifications.map(notification => ({
+      ...notification,
+      campusId: notification.campusId ? {
+        ...notification.campusId,
+        imageUrl: convertToFullUrl(notification.campusId.imageUrl)
+      } : notification.campusId,
+      data: convertUrlsInObject(notification.data)
+    }));
+
     return successResponse(res, 200, 'Notifications retrieved successfully', {
-      notifications,
-      total: notifications.length
+      notifications: notificationsWithConvertedUrls,
+      total: notificationsWithConvertedUrls.length
     }, 'notificationsList');
   } catch (err) {
     return errorResponse(res, 500, 'Failed to get notifications', err.message);

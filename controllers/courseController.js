@@ -8,6 +8,7 @@ const socketManager = require('../utils/socketManager');
 const Campus = require('../models/campus');
 const { addVideoResolutions } = require('../utils/videoResolutions');
 const { addProgressToItem } = require('../utils/progressHelper');
+const { convertToFullUrl } = require('../utils/urlHelper');
 
 const createCourse = async (req, res) => {
   try {
@@ -37,7 +38,7 @@ const createCourse = async (req, res) => {
       _id: course._id,
       campusId: course.campusId,
       title: course.title,
-      imageUrl: course.imageUrl,
+      imageUrl: convertToFullUrl(course.imageUrl),
       createdAt: course.createdAt
     };
 
@@ -72,7 +73,7 @@ const editCourse = async (req, res) => {
       _id: course._id,
       campusId: course.campusId,
       title: course.title,
-      imageUrl: course.imageUrl,
+      imageUrl: convertToFullUrl(course.imageUrl),
       createdAt: course.createdAt
     };
 
@@ -160,7 +161,7 @@ const listCoursesByCampus = async (req, res) => {
         campusTitle: campus.title,
         campusSlug: campus.slug,
         title: course.title,
-        imageUrl: course.imageUrl,
+        imageUrl: convertToFullUrl(course.imageUrl),
         totalVideos: totalVideos,
         videosWithProgress: videosWithProgress,
         courseProgress: courseProgress,
@@ -226,7 +227,7 @@ const getCourseById = async (req, res) => {
           courseId: course._id,
           campusId: course.campusId._id,
           name: lesson.name,
-          videoUrl: lesson.videoUrl,
+          videoUrl: convertToFullUrl(lesson.videoUrl),
           notes: lesson.notes || '',
           resolutions: lesson.resolutions || [],
           length: lesson.length || 0,
@@ -264,7 +265,7 @@ const getCourseById = async (req, res) => {
       campusTitle: course.campusId.title,
       campusSlug: course.campusId.slug,
       title: course.title,
-      imageUrl: course.imageUrl,
+      imageUrl: convertToFullUrl(course.imageUrl),
       totalVideos: totalVideos,
       videosWithProgress: videosWithProgress,
       courseProgress: courseProgress,
@@ -386,7 +387,7 @@ const getContinueLearning = async (req, res) => {
           _id: course._id,
           title: course.title,
           description: course.description,
-          imageUrl: course.imageUrl,
+          imageUrl: convertToFullUrl(course.imageUrl),
           campusId: course.campusId,
           campusTitle: campus?.title || '',
           campusSlug: campus?.slug || '',
@@ -521,7 +522,7 @@ const getCourseByIdAdmin = async (req, res) => {
         _id: lesson._id,
         moduleId: lesson.moduleId,
         name: lesson.name,
-        videoUrl: lesson.videoUrl,
+        videoUrl: convertToFullUrl(lesson.videoUrl),
         text: lesson.text,
         notes: lesson.notes || '',
         resolutions: lesson.resolutions || [],
@@ -537,9 +538,9 @@ const getCourseByIdAdmin = async (req, res) => {
       campusId: course.campusId._id,
       campusTitle: course.campusId.title,
       campusSlug: course.campusId.slug,
-      campusImageUrl: course.campusId.imageUrl,
+      campusImageUrl: convertToFullUrl(course.campusId.imageUrl),
       title: course.title,
-      imageUrl: course.imageUrl,
+      imageUrl: convertToFullUrl(course.imageUrl),
       modules: structuredModules,
       createdAt: course.createdAt
     };
@@ -582,7 +583,7 @@ const getCampusCoursesAdmin = async (req, res) => {
         _id: course._id,
         campusId: course.campusId,
         title: course.title,
-        imageUrl: course.imageUrl,
+        imageUrl: convertToFullUrl(course.imageUrl),
         moduleCount,
         createdAt: course.createdAt
       };
