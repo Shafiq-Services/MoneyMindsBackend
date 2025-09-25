@@ -5,6 +5,7 @@ const { uploadFileSmart } = require('../utils/b2OfficialMultithreaded');
 const { transcodeToHLS } = require('../utils/ffmpegTranscoder');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
+const { convertToFullUrl } = require('../utils/urlHelper');
 const fs = require('fs');
 
 // Configure multer for disk storage to handle large files efficiently
@@ -299,16 +300,16 @@ const unifiedUpload = async (req, res, uploadType) => {
     const responseData = {
       _id: uploadId,
       ...(uploadType === 'video' ? {
-        videoUrl: transcodeResult.videoUrl,
-        originalVideoUrl: uploadResult.fileUrl,
+        videoUrl: convertToFullUrl(transcodeResult.videoUrl),
+        originalVideoUrl: convertToFullUrl(uploadResult.fileUrl),
         videoType: type,
         resolutions: transcodeResult.resolutions,
         duration: transcodeResult.duration
       } : uploadType === 'image' ? {
-        imageUrl: uploadResult.fileUrl,
+        imageUrl: convertToFullUrl(uploadResult.fileUrl),
         imageType: type
       } : {
-        fileUrl: uploadResult.fileUrl,
+        fileUrl: convertToFullUrl(uploadResult.fileUrl),
         fileName: req.file.originalname,
         fileSize: req.file.size,
         mimeType: req.file.mimetype
@@ -316,7 +317,7 @@ const unifiedUpload = async (req, res, uploadType) => {
       createdAt: new Date()
     };
 
-    // Broadcast completion (with error handling)
+    // Broadcast completion (with error handling) - URLs already converted in responseData
     safeSocketBroadcast('broadcastUploadComplete', req.userId, {
       uploadType,
       uploadId,

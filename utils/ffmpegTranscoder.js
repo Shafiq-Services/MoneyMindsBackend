@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { uploadFileSmart } = require('./b2OfficialMultithreaded');
-const { getB2S3Url } = require('./b2Url');
+// getB2S3Url no longer needed - storing relative paths only
 
 // Use custom binaries only on Linux (e.g., Azure server)
 if (os.platform() !== 'win32') {
@@ -186,7 +186,7 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
     // Clean up temp files
     fs.rmSync(tempDir, { recursive: true, force: true });
 
-    const videoUrl = getB2S3Url(`${videoFolder}/${videoId}/master.m3u8`);
+    const videoUrl = `${videoFolder}/${videoId}/master.m3u8`; // Store relative path only
 
     return {
       videoUrl,

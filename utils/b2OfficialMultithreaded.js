@@ -3,7 +3,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const { getSmartUploadConfig } = require("./b2AutoTunedConfig");
-const { getB2S3Url } = require("./b2Url");
+// getB2S3Url no longer needed - storing relative paths only
 
 // Initialize B2 client with official library and proper User-Agent
 const b2 = new B2({
@@ -446,7 +446,7 @@ const uploadLargeFileOfficial = async (
     return {
       fileId: finishResult.data.fileId,
       fileName: finishResult.data.fileName,
-      fileUrl: getB2S3Url(finishResult.data.fileName),
+      fileUrl: finishResult.data.fileName, // Store relative path only
       fileSize: fileSize,
       uploadTime: Math.round((Date.now() - startTime) / 1000),
     };
@@ -501,7 +501,7 @@ const uploadSmallFileOfficial = async (
     return {
       fileId: "empty-file",
       fileName: fileName,
-      fileUrl: getB2S3Url(fileName),
+      fileUrl: fileName, // Store relative path only
       fileSize: 0,
       uploadTime: 0,
     };
@@ -650,7 +650,7 @@ const uploadSmallFileOfficial = async (
     return {
       fileId: result.data.fileId,
       fileName: result.data.fileName,
-      fileUrl: getB2S3Url(result.data.fileName),
+      fileUrl: result.data.fileName, // Store relative path only
       fileSize: fileSize,
       uploadTime: Math.round((Date.now() - startTime) / 1000),
     };
