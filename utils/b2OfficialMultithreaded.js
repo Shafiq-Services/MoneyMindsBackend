@@ -28,13 +28,38 @@ const b2 = new B2({
 let authData = null;
 
 /**
+ * Force refresh B2 authorization token
+ */
+const forceRefreshAuth = async () => {
+  console.log("🔄 Forcing B2 auth refresh...");
+  authData = null;
+  return await authorize();
+};
+
+/**
  * Authorize with B2 (cached for 24 hours)
  */
 const authorize = async () => {
   if (!authData) {
     console.log("🔐 Authorizing with B2...");
-    authData = await b2.authorize();
-    console.log("✅ B2 authorization successful");
+    console.log(`🔑 Using Key ID: ${process.env.B2_KEY_ID ? process.env.B2_KEY_ID.substring(0, 10) + '...' : 'NOT SET'}`);
+    console.log(`🗳️ Using Bucket ID: ${process.env.B2_BUCKET_ID ? process.env.B2_BUCKET_ID.substring(0, 10) + '...' : 'NOT SET'}`);
+    
+    try {
+      authData = await b2.authorize();
+      console.log("✅ B2 authorization successful");
+      console.log(`🌍 Download URL: ${authData.data.downloadUrl}`);
+      console.log(`🔗 API URL: ${authData.data.apiUrl}`);
+    } catch (error) {
+      console.error("❌ B2 authorization failed:");
+      console.error(`   Error: ${error.message}`);
+      if (error.response) {
+        console.error(`   Status: ${error.response.status}`);
+        console.error(`   Status Text: ${error.response.statusText}`);
+        console.error(`   Response Data:`, JSON.stringify(error.response.data, null, 2));
+      }
+      throw error;
+    }
   }
   return authData;
 };

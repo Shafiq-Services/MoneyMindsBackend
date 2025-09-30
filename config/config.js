@@ -61,6 +61,7 @@ module.exports = {
     B2_APPLICATION_KEY: process.env.B2_APPLICATION_KEY,
     B2_BUCKET_ID: process.env.B2_BUCKET_ID,
     B2_BUCKET_NAME: process.env.B2_BUCKET_NAME,
-    B2_REGION: process.env.B2_REGION || 'us-east-005'
+    B2_REGION: process.env.B2_REGION || 'us-east-005',
+    AZURE_CDN_URL: process.env.AZURE_CDN_URL
   };
   

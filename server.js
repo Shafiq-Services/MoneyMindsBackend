@@ -72,6 +72,29 @@ app.use(morgan("dev"));
 // Connect to MongoDB
 connectDB();
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const requiredVars = ['B2_KEY_ID', 'B2_APPLICATION_KEY', 'B2_BUCKET_ID', 'B2_BUCKET_NAME', 'AZURE_CDN_URL'];
+  const missingVars = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missingVars.length > 0) {
+    console.error('❌ Missing required environment variables:', missingVars);
+    console.error('❌ Application requires all environment variables to be configured');
+    process.exit(1);
+  }
+  
+  // Validate configurations
+  console.log('✅ Azure CDN URL configured:', process.env.AZURE_CDN_URL);
+  console.log('✅ Backblaze B2 configuration is complete');
+  
+  // Validate B2 key format
+  if (!process.env.B2_KEY_ID.startsWith('00')) {
+    console.warn('⚠️ B2_KEY_ID format appears incorrect - should start with "00"');
+  }
+}
+
+validateEnvironmentVariables();
+
 // Routes
 app.use("/api/user", require('./routes/user'));
 app.use("/api/subscription", subscriptionRoutes);
