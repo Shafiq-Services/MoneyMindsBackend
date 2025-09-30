@@ -117,6 +117,8 @@ app.use("/api/notification", require('./routes/notification'));
 // Admin Routes
 app.use("/api/admin/email", require('./routes/emailAdmin'));
 app.use("/api/admin/user", require('./routes/userAdmin'));
+app.use("/api/admin/category", require('./routes/categoryAdmin'));
+app.use("/api/admin/channel", require('./routes/channelAdmin'));
 
 // Base route
 app.get("/", (req, res) => {
