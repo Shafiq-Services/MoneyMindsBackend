@@ -195,7 +195,7 @@ const getAllSeries = async (req, res) => {
 // ADMIN API - Get single series by ID
 const getSeriesById = async (req, res) => {
   try {
-    const { id } = req.query;
+    const { id, season } = req.query;
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return errorResponse(res, 400, 'Invalid series ID.');
@@ -206,20 +206,73 @@ const getSeriesById = async (req, res) => {
       return errorResponse(res, 404, 'Series not found.');
     }
 
-    // Get episodes for this series
-    const episodes = await Video.find({ 
-      seriesId: id, 
-      type: 'episode' 
-    }).sort({ seasonNumber: 1, episodeNumber: 1 });
+    // Build aggregation pipeline to group episodes by season
+    const pipeline = [
+      {
+        $match: {
+          seriesId: new mongoose.Types.ObjectId(id),
+          type: 'episode'
+        }
+      }
+    ];
+
+    // Add season filter if specified
+    if (season) {
+      pipeline[0].$match.seasonNumber = parseInt(season);
+    }
+
+    // Group episodes by season
+    pipeline.push(
+      {
+        $group: {
+          _id: '$seasonNumber',
+          episodes: {
+            $push: {
+              _id: '$_id',
+              title: '$title',
+              description: '$description',
+              episodeNumber: '$episodeNumber',
+              videoUrl: '$videoUrl',
+              posterUrl: '$posterUrl',
+              resolutions: '$resolutions',
+              length: '$length',
+              createdAt: '$createdAt'
+            }
+          }
+        }
+      },
+      {
+        $sort: { '_id': 1 }
+      },
+      {
+        $project: {
+          seasonNumber: '$_id',
+          episodeCount: { $size: '$episodes' },
+          episodes: {
+            $sortArray: {
+              input: '$episodes',
+              sortBy: { episodeNumber: 1 }
+            }
+          },
+          _id: 0
+        }
+      }
+    );
+
+    const seasonsData = await Video.aggregate(pipeline);
 
     // Convert URLs in series and episodes
     const seriesWithConvertedUrls = {
       ...series.toObject(),
       posterUrl: convertToFullUrl(series.posterUrl),
-      episodes: episodes.map(episode => ({
-        ...episode.toObject(),
-        videoUrl: convertToFullUrl(episode.videoUrl),
-        posterUrl: convertToFullUrl(episode.posterUrl)
+      seasons: seasonsData.map(season => ({
+        seasonNumber: season.seasonNumber,
+        episodeCount: season.episodeCount,
+        episodes: season.episodes.map(episode => ({
+          ...episode,
+          videoUrl: convertToFullUrl(episode.videoUrl),
+          posterUrl: convertToFullUrl(episode.posterUrl)
+        }))
       }))
     };
 
@@ -287,6 +340,55 @@ const deleteSeries = async (req, res) => {
   }
 };
 
+// ADMIN API - Get all seasons for a series
+const getSeriesSeasons = async (req, res) => {
+  try {
+    const { seriesId } = req.query;
+    
+    if (!seriesId || !mongoose.Types.ObjectId.isValid(seriesId)) {
+      return errorResponse(res, 400, 'Valid seriesId is required.');
+    }
+
+    // Check if series exists
+    const series = await Series.findById(seriesId);
+    if (!series) {
+      return errorResponse(res, 404, 'Series not found.');
+    }
+
+    // Aggregate to get unique seasons with episode counts
+    const seasons = await Video.aggregate([
+      {
+        $match: {
+          seriesId: new mongoose.Types.ObjectId(seriesId),
+          type: 'episode'
+        }
+      },
+      {
+        $group: {
+          _id: '$seasonNumber',
+          episodeCount: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { '_id': 1 }
+      },
+      {
+        $project: {
+          seasonNumber: '$_id',
+          episodeCount: 1,
+          _id: 0
+        }
+      }
+    ]);
+
+    return successResponse(res, 200, 'Seasons retrieved successfully.', {
+      seasons
+    });
+  } catch (err) {
+    return errorResponse(res, 500, 'Failed to get seasons.', err.message);
+  }
+};
+
 module.exports = { 
   addSeries, 
   getRandomSeries,
@@ -294,5 +396,6 @@ module.exports = {
   getAllSeries,
   getSeriesById,
   updateSeries,
-  deleteSeries
+  deleteSeries,
+  getSeriesSeasons
 }; 

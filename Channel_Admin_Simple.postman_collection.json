@@ -1,0 +1,145 @@
+{
+  "info": {
+    "name": "Channel Admin - Simple (2 Types Only)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "CREATE Platform Channel",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Global Support Channel\",\n  \"isPlatformChannel\": true\n}"
+        },
+        "url": "{{base_url}}/api/admin/channel/create"
+      }
+    },
+    {
+      "name": "CREATE Campus Channel (Existing Category)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Campus Discussion\",\n  \"campusId\": \"{{campus_id}}\",\n  \"category\": \"{{category_id}}\",\n  \"isPlatformChannel\": false\n}"
+        },
+        "url": "{{base_url}}/api/admin/channel/create"
+      }
+    },
+    {
+      "name": "CREATE Campus Channel (Auto-Create Category)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Marketing Team\",\n  \"campusId\": \"{{campus_id}}\",\n  \"category\": \"MARKETING\",\n  \"isPlatformChannel\": false\n}"
+        },
+        "url": "{{base_url}}/api/admin/channel/create"
+      }
+    },
+    {
+      "name": "GET All Channels",
+      "request": {
+        "method": "GET",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/list?page=1&limit=20",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "list"],
+          "query": [
+            {"key": "page", "value": "1"},
+            {"key": "limit", "value": "20"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET Platform Channels Only",
+      "request": {
+        "method": "GET",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/list?isPlatformChannel=true",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "list"],
+          "query": [
+            {"key": "isPlatformChannel", "value": "true"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET Campus Channels Only",
+      "request": {
+        "method": "GET",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/list?isPlatformChannel=false",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "list"],
+          "query": [
+            {"key": "isPlatformChannel", "value": "false"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET Channels by Campus",
+      "request": {
+        "method": "GET",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/list?campusId={{campus_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "list"],
+          "query": [
+            {"key": "campusId", "value": "{{campus_id}}"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "SEARCH Channels",
+      "request": {
+        "method": "GET",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/list?search=support",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "list"],
+          "query": [
+            {"key": "search", "value": "support"}
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {"key": "base_url", "value": "http://localhost:5000"},
+    {"key": "admin_token", "value": "YOUR_ADMIN_TOKEN"},
+    {"key": "campus_id", "value": "YOUR_CAMPUS_ID"},
+    {"key": "category_id", "value": "YOUR_CATEGORY_ID"}
+  ]
+}

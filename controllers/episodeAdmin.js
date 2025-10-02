@@ -9,11 +9,14 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const getAllEpisodes = async (req, res) => {
   try {
     const pagination = parsePaginationParams(req.query);
-    const { seriesId } = req.query;
+    const { seriesId, seasonNumber } = req.query;
     
     let matchCondition = { type: 'episode' };
     if (seriesId && mongoose.Types.ObjectId.isValid(seriesId)) {
       matchCondition.seriesId = new mongoose.Types.ObjectId(seriesId);
+    }
+    if (seasonNumber) {
+      matchCondition.seasonNumber = parseInt(seasonNumber);
     }
     
     const pipeline = [

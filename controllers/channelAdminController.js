@@ -235,9 +235,15 @@ const deleteChannelById = async (req, res) => {
 };
 
 /**
- * Create new channel
+ * Create new channel - Two types only:
+ * 1. Platform Channel (isPlatformChannel: true) - Global, no campus/category
+ * 2. Campus Channel (isPlatformChannel: false) - Requires campusId and category
  * @route POST /api/admin/channel/create
  * @access Admin
+ * 
+ * Category can be:
+ * - ObjectId string (existing category)
+ * - Slug string (will auto-create if doesn't exist)
  */
 const createChannel = async (req, res) => {
   try {
@@ -247,15 +253,53 @@ const createChannel = async (req, res) => {
       return errorResponse(res, 400, 'Channel name is required');
     }
 
-    // Validate ObjectId formats if provided
     const mongoose = require('mongoose');
-    
-    if (campusId && !mongoose.Types.ObjectId.isValid(campusId)) {
-      return errorResponse(res, 400, 'Invalid campusId format. Must be a valid 24-character ObjectId');
+    const ChatCategory = require('../models/chat-category');
+
+    // TWO CHANNEL TYPES VALIDATION
+    if (isPlatformChannel) {
+      // Platform Channel: campusId and category must NOT be provided
+      if (campusId || category) {
+        return errorResponse(res, 400, 'Platform channels cannot have campusId or category. Leave them empty for global channels.');
+      }
+    } else {
+      // Campus Channel: campusId and category are REQUIRED
+      if (!campusId) {
+        return errorResponse(res, 400, 'Campus channels require campusId');
+      }
+      if (!category) {
+        return errorResponse(res, 400, 'Campus channels require category');
+      }
+      
+      // Validate campusId format
+      if (!mongoose.Types.ObjectId.isValid(campusId)) {
+        return errorResponse(res, 400, 'Invalid campusId format');
+      }
     }
+
+    // Handle category: can be ObjectId or slug string (auto-create if doesn't exist)
+    let categoryId = null;
     
-    if (category && !mongoose.Types.ObjectId.isValid(category)) {
-      return errorResponse(res, 400, 'Invalid category format. Must be a valid 24-character ObjectId');
+    if (!isPlatformChannel && category) {
+      if (mongoose.Types.ObjectId.isValid(category)) {
+        // Category provided as ObjectId
+        categoryId = category;
+      } else {
+        // Category provided as slug string - find or create
+        const categorySlug = category.toUpperCase().trim();
+        let categoryDoc = await ChatCategory.findOne({ slug: categorySlug });
+        
+        if (!categoryDoc) {
+          // Auto-create category if it doesn't exist
+          categoryDoc = await ChatCategory.create({ 
+            slug: categorySlug,
+            createdBy: null // Admin created
+          });
+          console.log(`✅ [Admin] Auto-created category: ${categorySlug}`);
+        }
+        
+        categoryId = categoryDoc._id;
+      }
     }
 
     // Check if channel name already exists (slug collision)
@@ -267,13 +311,13 @@ const createChannel = async (req, res) => {
       return errorResponse(res, 400, 'Channel with this name already exists');
     }
 
-    // Create channel data
+    // Create channel data based on type
     const channelData = {
       name: name.trim(),
-      campusId: campusId || null,
-      category: category || null,
+      campusId: isPlatformChannel ? null : campusId,
+      category: isPlatformChannel ? null : categoryId,
       isPlatformChannel: isPlatformChannel,
-      createdBy: null // Admin created, no specific user
+      createdBy: null // Admin created
     };
 
     // Create the channel
@@ -285,7 +329,7 @@ const createChannel = async (req, res) => {
       .populate('category', 'slug')
       .lean();
 
-    console.log(`✅ [Admin] Created new channel: ${newChannel.name} (${newChannel.slug})`);
+    console.log(`✅ [Admin] Created ${isPlatformChannel ? 'PLATFORM' : 'CAMPUS'} channel: ${newChannel.name}`);
 
     return successResponse(res, 201, 'Channel created successfully', populatedChannel, 'channelCreated');
 
