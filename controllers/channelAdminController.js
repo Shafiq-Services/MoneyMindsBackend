@@ -73,10 +73,20 @@ const getAllChannels = async (req, res) => {
       messageCountMap[item._id.toString()] = item.messageCount;
     });
 
-    const responseData = channels.map(channel => ({
-      ...channel,
-      messageCount: messageCountMap[channel._id.toString()] || 0
-    }));
+    const responseData = channels.map(channel => {
+      const channelData = {
+        ...channel,
+        messageCount: messageCountMap[channel._id.toString()] || 0
+      };
+      
+      // Remove null fields for platform channels
+      if (channel.isPlatformChannel) {
+        delete channelData.campusId;
+        delete channelData.category;
+      }
+      
+      return channelData;
+    });
 
     return successResponse(res, 200, 'Channels retrieved successfully', {
       channels: responseData,
@@ -98,8 +108,9 @@ const getAllChannels = async (req, res) => {
 
 /**
  * Update channel by ID
- * @route PUT /api/admin/channel/update
+ * @route PUT /api/admin/channel/update?channelId=xxx
  * @access Admin
+ * @body { name?, campusId?, category?, isPlatformChannel? }
  */
 const updateChannelById = async (req, res) => {
   try {
@@ -238,8 +249,9 @@ const deleteChannelById = async (req, res) => {
  * Create new channel - Two types only:
  * 1. Platform Channel (isPlatformChannel: true) - Global, no campus/category
  * 2. Campus Channel (isPlatformChannel: false) - Requires campusId and category
- * @route POST /api/admin/channel/create
+ * @route POST /api/admin/channel/create?name=xxx&campusId=xxx&category=xxx
  * @access Admin
+ * @query { name, campusId?, category?, isPlatformChannel? }
  * 
  * Category can be:
  * - ObjectId string (existing category)
@@ -247,7 +259,8 @@ const deleteChannelById = async (req, res) => {
  */
 const createChannel = async (req, res) => {
   try {
-    const { name, campusId, category, isPlatformChannel = false } = req.body;
+    const { name, campusId, category, isPlatformChannel } = req.query;
+    const isPlatform = isPlatformChannel === 'true';
 
     if (!name || !name.trim()) {
       return errorResponse(res, 400, 'Channel name is required');
@@ -257,17 +270,17 @@ const createChannel = async (req, res) => {
     const ChatCategory = require('../models/chat-category');
 
     // TWO CHANNEL TYPES VALIDATION
-    if (isPlatformChannel) {
+    if (isPlatform) {
       // Platform Channel: campusId and category must NOT be provided
       if (campusId || category) {
-        return errorResponse(res, 400, 'Platform channels cannot have campusId or category. Leave them empty for global channels.');
+        return errorResponse(res, 400, 'Platform channels cannot have campusId or category');
       }
     } else {
       // Campus Channel: campusId and category are REQUIRED
-      if (!campusId) {
+      if (!campusId || !campusId.trim()) {
         return errorResponse(res, 400, 'Campus channels require campusId');
       }
-      if (!category) {
+      if (!category || (typeof category === 'string' && !category.trim())) {
         return errorResponse(res, 400, 'Campus channels require category');
       }
       
@@ -280,13 +293,18 @@ const createChannel = async (req, res) => {
     // Handle category: can be ObjectId or slug string (auto-create if doesn't exist)
     let categoryId = null;
     
-    if (!isPlatformChannel && category) {
+    if (!isPlatform && category) {
       if (mongoose.Types.ObjectId.isValid(category)) {
         // Category provided as ObjectId
         categoryId = category;
       } else {
         // Category provided as slug string - find or create
         const categorySlug = category.toUpperCase().trim();
+        
+        if (!categorySlug) {
+          return errorResponse(res, 400, 'Category cannot be empty');
+        }
+        
         let categoryDoc = await ChatCategory.findOne({ slug: categorySlug });
         
         if (!categoryDoc) {
@@ -314,22 +332,27 @@ const createChannel = async (req, res) => {
     // Create channel data based on type
     const channelData = {
       name: name.trim(),
-      campusId: isPlatformChannel ? null : campusId,
-      category: isPlatformChannel ? null : categoryId,
-      isPlatformChannel: isPlatformChannel,
-      createdBy: null // Admin created
+      campusId: isPlatform ? null : campusId,
+      category: isPlatform ? null : categoryId,
+      isPlatformChannel: isPlatform,
     };
 
     // Create the channel
     const newChannel = await Channel.create(channelData);
 
     // Populate the response
-    const populatedChannel = await Channel.findById(newChannel._id)
+    let populatedChannel = await Channel.findById(newChannel._id)
       .populate('campusId', 'title slug')
       .populate('category', 'slug')
       .lean();
 
-    console.log(`✅ [Admin] Created ${isPlatformChannel ? 'PLATFORM' : 'CAMPUS'} channel: ${newChannel.name}`);
+    // Remove null fields for platform channels
+    if (isPlatform) {
+      delete populatedChannel.campusId;
+      delete populatedChannel.category;
+    }
+
+    console.log(`✅ [Admin] Created ${isPlatform ? 'PLATFORM' : 'CAMPUS'} channel: ${newChannel.name}`);
 
     return successResponse(res, 201, 'Channel created successfully', populatedChannel, 'channelCreated');
 

@@ -9,29 +9,36 @@
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{admin_token}}"},
-          {"key": "Content-Type", "value": "application/json"}
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
         ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"name\": \"Global Support Channel\",\n  \"isPlatformChannel\": true\n}"
-        },
-        "url": "{{base_url}}/api/admin/channel/create"
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/create?name=Global Support Channel&isPlatformChannel=true",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "create"],
+          "query": [
+            {"key": "name", "value": "Global Support Channel"},
+            {"key": "isPlatformChannel", "value": "true"}
+          ]
+        }
       }
     },
     {
-      "name": "CREATE Campus Channel (Existing Category)",
+      "name": "CREATE Campus Channel (with ObjectId)",
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{admin_token}}"},
-          {"key": "Content-Type", "value": "application/json"}
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
         ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"name\": \"Campus Discussion\",\n  \"campusId\": \"{{campus_id}}\",\n  \"category\": \"{{category_id}}\",\n  \"isPlatformChannel\": false\n}"
-        },
-        "url": "{{base_url}}/api/admin/channel/create"
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/create?name=Tech News&campusId={{campus_id}}&category={{category_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "create"],
+          "query": [
+            {"key": "name", "value": "Tech News"},
+            {"key": "campusId", "value": "{{campus_id}}"},
+            {"key": "category", "value": "{{category_id}}"}
+          ]
+        }
       }
     },
     {
@@ -39,14 +46,37 @@
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{admin_token}}"},
-          {"key": "Content-Type", "value": "application/json"}
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
         ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"name\": \"Marketing Team\",\n  \"campusId\": \"{{campus_id}}\",\n  \"category\": \"MARKETING\",\n  \"isPlatformChannel\": false\n}"
-        },
-        "url": "{{base_url}}/api/admin/channel/create"
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/create?name=Marketing Team&campusId={{campus_id}}&category=MARKETING",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "create"],
+          "query": [
+            {"key": "name", "value": "Marketing Team"},
+            {"key": "campusId", "value": "{{campus_id}}"},
+            {"key": "category", "value": "MARKETING"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "CREATE Campus Channel - FAIL (Empty Category)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{admin_token}}"}
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/channel/create?name=Will Fail&campusId={{campus_id}}&category=",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "channel", "create"],
+          "query": [
+            {"key": "name", "value": "Will Fail"},
+            {"key": "campusId", "value": "{{campus_id}}"},
+            {"key": "category", "value": ""}
+          ]
+        }
       }
     },
     {
