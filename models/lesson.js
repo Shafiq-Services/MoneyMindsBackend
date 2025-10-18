@@ -5,6 +5,7 @@ const lessonSchema = new mongoose.Schema({
   name: { type: String, required: true },
   videoUrl: { type: String, default: '' }, // .m3u8 video URL - now optional
   text: { type: String, default: '' }, // Lesson text content for text-only lessons
+  thumbnail: { type: String, default: '' }, // Lesson thumbnail image URL
   resolutions: [Number], // Available video resolutions (e.g., [1080, 720, 480, 360])
   notes: { type: String, default: '' }, // Lesson notes, defaults to empty string
   length: { type: Number, default: 0 }, // Video length in seconds

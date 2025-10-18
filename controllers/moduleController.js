@@ -11,7 +11,7 @@ const { convertToFullUrl } = require('../utils/urlHelper');
 
 const createModule = async (req, res) => {
   try {
-    const { courseId, name } = req.body;
+    const { courseId, name, thumbnail } = req.body;
 
     if (!courseId || !name) {
       return errorResponse(res, 400, 'Course ID and name are required');
@@ -25,7 +25,8 @@ const createModule = async (req, res) => {
 
     const module = await Module.create({
       courseId,
-      name
+      name,
+      thumbnail: thumbnail || ''
     });
 
     // Structure response in organized format
@@ -34,6 +35,7 @@ const createModule = async (req, res) => {
       courseId: module.courseId,
       campusId: course.campusId,
       name: module.name,
+      thumbnail: convertToFullUrl(module.thumbnail),
       createdAt: module.createdAt
     };
 
@@ -46,7 +48,7 @@ const createModule = async (req, res) => {
 const editModule = async (req, res) => {
   try {
     const { moduleId } = req.query;
-    const { name } = req.body;
+    const { name, thumbnail } = req.body;
 
     if (!moduleId) {
       return errorResponse(res, 400, 'Module ID is required');
@@ -59,6 +61,7 @@ const editModule = async (req, res) => {
 
     // Admin operation - no membership check required
     if (name) module.name = name;
+    if (thumbnail !== undefined) module.thumbnail = thumbnail || '';
     
     await module.save();
 
@@ -68,6 +71,7 @@ const editModule = async (req, res) => {
       courseId: module.courseId._id,
       campusId: module.courseId.campusId,
       name: module.name,
+      thumbnail: convertToFullUrl(module.thumbnail),
       createdAt: module.createdAt
     };
 
@@ -144,6 +148,7 @@ const listModulesByCourse = async (req, res) => {
       courseId: course._id,
       campusId: course.campusId,
       name: module.name,
+      thumbnail: convertToFullUrl(module.thumbnail),
       lessons: module.lessons.map(lesson => {
         const lessonWithResolutions = addVideoResolutions({
           _id: lesson._id,
@@ -152,6 +157,7 @@ const listModulesByCourse = async (req, res) => {
           campusId: course.campusId,
           name: lesson.name,
           videoUrl: convertToFullUrl(lesson.videoUrl),
+          thumbnail: convertToFullUrl(lesson.thumbnail),
           notes: lesson.notes || '',
           resolutions: lesson.resolutions || [],
           length: lesson.length || 0,
@@ -209,6 +215,7 @@ const getModuleById = async (req, res) => {
         campusId: module.courseId.campusId,
         name: lesson.name,
         videoUrl: convertToFullUrl(lesson.videoUrl),
+        thumbnail: convertToFullUrl(lesson.thumbnail),
         notes: lesson.notes || '',
         resolutions: lesson.resolutions || [],
         createdAt: lesson.createdAt,
@@ -222,6 +229,7 @@ const getModuleById = async (req, res) => {
       courseId: module.courseId._id,
       campusId: module.courseId.campusId,
       name: module.name,
+      thumbnail: convertToFullUrl(module.thumbnail),
       lessons: structuredLessons,
       createdAt: module.createdAt
     };
@@ -334,6 +342,7 @@ const getModuleByIdAdmin = async (req, res) => {
       name: lesson.name,
       videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text,
+      thumbnail: convertToFullUrl(lesson.thumbnail),
       notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
@@ -349,6 +358,7 @@ const getModuleByIdAdmin = async (req, res) => {
       campusTitle: module.courseId.campusId.title,
       campusSlug: module.courseId.campusId.slug,
       name: module.name,
+      thumbnail: convertToFullUrl(module.thumbnail),
       lessons: structuredLessons,
       createdAt: module.createdAt
     };
@@ -396,6 +406,7 @@ const getCourseModulesAdmin = async (req, res) => {
         _id: module._id,
         courseId: module.courseId,
         name: module.name,
+        thumbnail: convertToFullUrl(module.thumbnail),
         lessonCount,
         videoLessons,
         textLessons,

@@ -12,7 +12,7 @@ const { convertToFullUrl } = require('../utils/urlHelper');
 
 const createLesson = async (req, res) => {
   try {
-    const { moduleId, name, videoUrl, text, notes } = req.body;
+    const { moduleId, name, videoUrl, text, notes, thumbnail } = req.body;
 
     if (!moduleId || !name) {
       return errorResponse(res, 400, 'Module ID and name are required');
@@ -56,6 +56,7 @@ const createLesson = async (req, res) => {
       name,
       videoUrl: videoUrl || '',
       text: text || '',
+      thumbnail: thumbnail || '',
       notes: notes || '',
       resolutions: resolutions,
       length: videoDuration
@@ -78,6 +79,7 @@ const createLesson = async (req, res) => {
       name: lesson.name,
       videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text,
+      thumbnail: convertToFullUrl(lesson.thumbnail),
       notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
@@ -95,7 +97,7 @@ const createLesson = async (req, res) => {
 const editLesson = async (req, res) => {
   try {
     const { lessonId } = req.query;
-    const { name, videoUrl, text, notes } = req.body;
+    const { name, videoUrl, text, notes, thumbnail } = req.body;
 
     if (!lessonId) {
       return errorResponse(res, 400, 'Lesson ID is required');
@@ -115,6 +117,7 @@ const editLesson = async (req, res) => {
     if (name) lesson.name = name;
     if (notes !== undefined) lesson.notes = notes || ''; // Ensure notes is always a string, never null
     if (text !== undefined) lesson.text = text || ''; // Handle text field
+    if (thumbnail !== undefined) lesson.thumbnail = thumbnail || ''; // Handle thumbnail field
 
     // Handle videoUrl changes
     if (videoUrl !== undefined) {
@@ -155,6 +158,7 @@ const editLesson = async (req, res) => {
       name: lesson.name,
       videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text,
+      thumbnail: convertToFullUrl(lesson.thumbnail),
       notes: lesson.notes || '', // Ensure notes is always a string
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
@@ -226,6 +230,7 @@ const listLessonsByModule = async (req, res) => {
         name: lesson.name,
         videoUrl: convertToFullUrl(lesson.videoUrl),
         text: lesson.text || '', // Include text field
+        thumbnail: convertToFullUrl(lesson.thumbnail),
         notes: lesson.notes || '', // Ensure notes is always a string
         resolutions: lesson.resolutions || [],
         length: lesson.length || 0,
@@ -280,6 +285,7 @@ const getLessonById = async (req, res) => {
       name: lesson.name,
       videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text || '', // Include text field
+      thumbnail: convertToFullUrl(lesson.thumbnail),
       notes: lesson.notes || '', // Ensure notes is always a string
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
@@ -403,6 +409,7 @@ const getLessonByIdAdmin = async (req, res) => {
       name: lesson.name,
       videoUrl: convertToFullUrl(lesson.videoUrl),
       text: lesson.text || '',
+      thumbnail: convertToFullUrl(lesson.thumbnail),
       notes: lesson.notes || '',
       resolutions: lesson.resolutions || [],
       length: lesson.length || 0,
@@ -466,6 +473,7 @@ const getModuleLessonsAdmin = async (req, res) => {
         moduleId: lesson.moduleId,
         name: lesson.name,
         videoUrl: convertToFullUrl(lesson.videoUrl),
+        thumbnail: convertToFullUrl(lesson.thumbnail),
         hasText: hasText,
         lessonType,
         length: lesson.length || 0,
@@ -515,4 +523,4 @@ module.exports = {
   getAllLessonsAdmin,
   getLessonByIdAdmin,
   getModuleLessonsAdmin
-}; 
+};
