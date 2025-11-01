@@ -6,9 +6,21 @@ const { uploadFileSmart } = require('./b2OfficialMultithreaded');
 // getB2S3Url no longer needed - storing relative paths only
 
 // Use custom binaries only on Linux (e.g., Azure server)
-if (os.platform() !== 'win32') {
-  ffmpeg.setFfmpegPath(path.join(__dirname, '../bin', 'ffmpeg'));
-  ffmpeg.setFfprobePath(path.join(__dirname, '../bin', 'ffprobe'));
+// On macOS and Windows, use system-installed ffmpeg
+if (os.platform() === 'linux') {
+  const customFfmpegPath = path.join(__dirname, '../bin', 'ffmpeg');
+  const customFfprobePath = path.join(__dirname, '../bin', 'ffprobe');
+  
+  // Only use custom binaries if they exist
+  if (fs.existsSync(customFfmpegPath) && fs.existsSync(customFfprobePath)) {
+    ffmpeg.setFfmpegPath(customFfmpegPath);
+    ffmpeg.setFfprobePath(customFfprobePath);
+    console.log('🎬 [FFmpeg] Using custom Linux binaries from bin/');
+  } else {
+    console.log('🎬 [FFmpeg] Custom binaries not found, using system FFmpeg');
+  }
+} else {
+  console.log(`🎬 [FFmpeg] Using system FFmpeg on ${os.platform()}`);
 }
 
 const getVideoResolution = (videoBuffer) => {
@@ -76,8 +88,14 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
     const { width, height, duration } = await getVideoResolution(videoBuffer);
     const resolutions = generateHLSResolutions(height);
     
-    const tempDir = path.join(__dirname, '../temp', videoId);
+    // Use system temp directory to avoid issues with spaces in path
+    const os = require('os');
+    const systemTempDir = os.tmpdir();
+    const tempDir = path.join(systemTempDir, 'moneymind-transcoding', videoId);
     const outputDir = path.join(tempDir, 'hls');
+    
+    console.log(`📁 [FFmpeg] Temp directory: ${tempDir}`);
+    console.log(`📁 [FFmpeg] Output directory: ${outputDir}`);
     
     // Create directories
     if (!fs.existsSync(outputDir)) {
@@ -103,6 +121,14 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
       if (!fs.existsSync(outputPath)) {
         fs.mkdirSync(outputPath, { recursive: true });
       }
+      
+      const segmentPath = path.join(outputPath, 'segment_%03d.ts');
+      const playlistOutputPath = path.join(outputPath, playlistName);
+      
+      console.log(`📹 [FFmpeg] Resolution ${resolution.height}p paths:`);
+      console.log(`   Input: ${inputPath}`);
+      console.log(`   Output playlist: ${playlistOutputPath}`);
+      console.log(`   Segments: ${segmentPath}`);
 
       await new Promise((resolve, reject) => {
         const command = ffmpeg(inputPath)
@@ -116,10 +142,11 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
             '-crf 23',
             '-hls_time 6',
             '-hls_list_size 0',
-            '-hls_segment_filename', path.join(outputPath, 'segment_%03d.ts'),
+            '-hls_segment_filename',
+            segmentPath,
             '-f hls'
           ])
-          .output(path.join(outputPath, playlistName));
+          .output(playlistOutputPath);
 
         command
           .on('end', () => {

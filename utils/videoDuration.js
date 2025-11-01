@@ -8,9 +8,16 @@ const ffmpeg = require('fluent-ffmpeg');
 const os = require('os');
 
 // Use custom binaries only on Linux (e.g., Azure server)
-if (os.platform() !== 'win32') {
-  ffmpeg.setFfmpegPath(path.join(__dirname, '../bin', 'ffmpeg'));
-  ffmpeg.setFfprobePath(path.join(__dirname, '../bin', 'ffprobe'));
+// On macOS and Windows, use system-installed ffmpeg
+if (os.platform() === 'linux') {
+  const customFfmpegPath = path.join(__dirname, '../bin', 'ffmpeg');
+  const customFfprobePath = path.join(__dirname, '../bin', 'ffprobe');
+  
+  // Only use custom binaries if they exist
+  if (fs.existsSync(customFfmpegPath) && fs.existsSync(customFfprobePath)) {
+    ffmpeg.setFfmpegPath(customFfmpegPath);
+    ffmpeg.setFfprobePath(customFfprobePath);
+  }
 }
 
 /**

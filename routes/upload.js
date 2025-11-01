@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const {
   uploadImage,
-  uploadVideo,
   uploadGeneralFile,
-  upload
+  upload,
+  queuedUploadVideo,
+  getUploadStatus
 } = require('../controllers/upload');
 const { authMiddleware } = require('../middlewares/auth');
 const { errorResponse } = require('../utils/apiResponse');
@@ -31,11 +32,15 @@ const enhancedErrorHandler = (err, req, res, next) => {
   next();
 };
 
-// Public upload routes (no authentication required)
-router.post('/file', upload.single('file'), enhancedErrorHandler, uploadGeneralFile);
-
 // Protected upload routes (authentication required)
+// Video upload - Asynchronous with Bull Queue to prevent Azure timeouts
+router.post('/video', authMiddleware, upload.single('video'), enhancedErrorHandler, queuedUploadVideo);
+
+// Upload status endpoint for polling
+router.get('/status', authMiddleware, getUploadStatus);
+
+// Other upload routes (kept for backwards compatibility)
 router.post('/image', authMiddleware, upload.single('image'), enhancedErrorHandler, uploadImage);
-router.post('/video', authMiddleware, upload.single('video'), enhancedErrorHandler, uploadVideo);
+router.post('/file', upload.single('file'), enhancedErrorHandler, uploadGeneralFile);
 
 module.exports = router; 

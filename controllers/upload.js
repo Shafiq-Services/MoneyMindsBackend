@@ -7,6 +7,7 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const { convertToFullUrl } = require('../utils/urlHelper');
 const fs = require('fs');
+const { addUploadJob, getJobStatus } = require('../utils/uploadQueue');
 
 // Configure multer for disk storage to handle large files efficiently
 const storage = multer.diskStorage({
@@ -376,9 +377,185 @@ const uploadGeneralFile = async (req, res) => {
   return unifiedUpload(req, res, 'file');
 };
 
+/**
+ * Queued upload function for asynchronous processing
+ * Returns immediately with job ID for status polling
+ */
+const queuedUpload = async (req, res, uploadType) => {
+  const uploadId = uuidv4();
+  const type = req.query.type;
+  
+  // Validate userId from auth middleware
+  if (!req.userId) {
+    return errorResponse(res, 401, 'User authentication required');
+  }
+  
+  try {
+    // Validate upload type and type parameter
+    if (uploadType === 'image' && !type) {
+      return errorResponse(res, 400, 'Image type is required. Use query parameter: ?type=campus|course|video|series|book|user|avatar|banner|marketplace|feed|chat|landing');
+    }
+    
+    if (uploadType === 'video' && (!type || !validateUploadType(type, uploadType))) {
+      return errorResponse(res, 400, 'Invalid or missing video type. Use ?type=film|episode|lesson');
+    }
+    
+    if (uploadType === 'image' && !validateUploadType(type, uploadType)) {
+      return errorResponse(res, 400, 'Invalid image type. Valid types: campus, course, video, series, book, user, avatar, banner, marketplace, feed, chat, landing');
+    }
+    
+    // Additional validation: ensure folder mapping exists for image types
+    if (uploadType === 'image') {
+      const folder = getUploadFolder(type, uploadType);
+      if (!folder) {
+        return errorResponse(res, 400, `Unsupported image type: ${type}. Only predefined image types are allowed.`);
+      }
+    }
+
+    if (!req.file) {
+      return errorResponse(res, 400, `No ${uploadType} file provided`);
+    }
+
+    // File size validation
+    const maxSizes = {
+      'image': 10 * 1024 * 1024, // 10MB
+      'video': 10 * 1024 * 1024 * 1024, // 10GB
+      'file': 1 * 1024 * 1024 * 1024 // 1GB
+    };
+    
+    if (req.file.size > maxSizes[uploadType]) {
+      cleanupTempFile(req.file.path);
+      return errorResponse(res, 400, `File size exceeds ${(maxSizes[uploadType] / 1024 / 1024).toFixed(0)}MB limit`);
+    }
+
+    // File type validation
+    const allowedTypes = {
+      'image': ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
+      'video': [
+        'video/mp4', 
+        'video/avi', 
+        'video/mov', 
+        'video/wmv', 
+        'video/flv', 
+        'video/webm', 
+        'video/mkv',
+        'video/x-matroska',
+        'application/x-matroska'
+      ],
+      'file': []
+    };
+    
+    // Special handling for MKV files by extension
+    const fileExtension = path.extname(req.file.originalname).toLowerCase();
+    const isMkvByExtension = fileExtension === '.mkv';
+    
+    if (uploadType !== 'file' && !allowedTypes[uploadType].includes(req.file.mimetype) && !(uploadType === 'video' && isMkvByExtension)) {
+      console.log(`🚫 [Upload Validation] File rejected: ${req.file.originalname}`);
+      console.log(`🚫 [Upload Validation] Detected MIME type: ${req.file.mimetype}`);
+      cleanupTempFile(req.file.path);
+      return errorResponse(res, 400, `Invalid ${uploadType} file type. Detected MIME type: ${req.file.mimetype}`);
+    }
+
+    console.log(`📋 [Upload] Queueing ${uploadType} upload: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)}MB)`);
+    
+    // Add job to queue
+    const { job, uploadJob } = await addUploadJob({
+      uploadId,
+      userId: req.userId,
+      uploadType,
+      type,
+      file: req.file
+    });
+    
+    console.log(`✅ [Upload] Job queued successfully: ${uploadId}`);
+    
+    // Return immediate response with job information
+    const responseData = {
+      uploadId: uploadId,
+      status: 'queued',
+      message: `${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} upload queued for processing`,
+      uploadType: uploadType,
+      ...(type && { [uploadType === 'video' ? 'videoType' : 'imageType']: type }),
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
+      statusUrl: `/api/upload/status?uploadId=${uploadId}`,
+      createdAt: uploadJob.createdAt
+    };
+    
+    return successResponse(res, 202, 'Upload queued successfully', responseData, 'upload');
+
+  } catch (error) {
+    console.error(`❌ [Upload] Queue failed for user ${req.userId}:`, error.message);
+    
+    // Cleanup temp file on error
+    try {
+      cleanupTempFile(req.file?.path);
+    } catch (cleanupError) {
+      console.warn('Failed to cleanup temp file:', cleanupError.message);
+    }
+    
+    return errorResponse(res, 500, 'Failed to queue upload', error.message);
+  }
+};
+
+const queuedUploadVideo = async (req, res) => {
+  return queuedUpload(req, res, 'video');
+};
+
+/**
+ * Get upload status for polling
+ * GET /api/upload/status?uploadId=xxx
+ */
+const getUploadStatus = async (req, res) => {
+  const { uploadId } = req.query;
+  
+  // Validate userId from auth middleware
+  if (!req.userId) {
+    return errorResponse(res, 401, 'User authentication required');
+  }
+  
+  try {
+    if (!uploadId) {
+      return errorResponse(res, 400, 'Upload ID is required');
+    }
+    
+    console.log(`🔍 [Upload Status] Checking status for: ${uploadId}`);
+    
+    // Get job status from database
+    const jobStatus = await getJobStatus(uploadId, req.userId);
+    
+    if (!jobStatus) {
+      return errorResponse(res, 404, 'Upload job not found', 'The upload ID does not exist or you do not have permission to access it');
+    }
+    
+    // Convert URLs in result if completed
+    if (jobStatus.status === 'completed' && jobStatus.result) {
+      if (jobStatus.result.videoUrl) {
+        jobStatus.result.videoUrl = convertToFullUrl(jobStatus.result.videoUrl);
+      }
+      if (jobStatus.result.originalVideoUrl) {
+        jobStatus.result.originalVideoUrl = convertToFullUrl(jobStatus.result.originalVideoUrl);
+      }
+      if (jobStatus.result.imageUrl) {
+        jobStatus.result.imageUrl = convertToFullUrl(jobStatus.result.imageUrl);
+      }
+      if (jobStatus.result.fileUrl) {
+        jobStatus.result.fileUrl = convertToFullUrl(jobStatus.result.fileUrl);
+      }
+    }
+    
+    return successResponse(res, 200, 'Upload status retrieved', jobStatus, 'uploadStatus');
+    
+  } catch (error) {
+    console.error(`❌ [Upload Status] Error:`, error.message);
+    return errorResponse(res, 500, 'Failed to get upload status', error.message);
+  }
+};
+
 module.exports = {
   upload,
   uploadImage,
-  uploadVideo,
-  uploadGeneralFile
+  uploadGeneralFile,
+  queuedUploadVideo,
+  getUploadStatus
 }; 
