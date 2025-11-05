@@ -52,6 +52,7 @@ const upload = multer({
         'video/mp4', 
         'video/avi', 
         'video/mov', 
+        'video/quicktime',   // Standard MOV MIME type
         'video/wmv', 
         'video/flv', 
         'video/webm', 
@@ -67,7 +68,7 @@ const upload = multer({
       if (allowedVideoTypes.includes(file.mimetype) || isMkvByExtension) {
         cb(null, true);
       } else {
-        cb(new Error('Only video files (MP4, AVI, MOV, WMV, FLV, WebM, MKV) are allowed'), false);
+        cb(new Error('Only video files (MP4, AVI, MOV/QuickTime, WMV, FLV, WebM, MKV) are allowed'), false);
       }
     } else if (req.path.includes('/file')) {
       // Allow any file type for /file endpoint
@@ -208,6 +209,7 @@ const unifiedUpload = async (req, res, uploadType) => {
         'video/mp4', 
         'video/avi', 
         'video/mov', 
+        'video/quicktime',   // Standard MOV MIME type
         'video/wmv', 
         'video/flv', 
         'video/webm', 
@@ -435,6 +437,7 @@ const queuedUpload = async (req, res, uploadType) => {
         'video/mp4', 
         'video/avi', 
         'video/mov', 
+        'video/quicktime',   // Standard MOV MIME type
         'video/wmv', 
         'video/flv', 
         'video/webm', 
