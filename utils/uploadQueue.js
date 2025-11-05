@@ -1,36 +1,90 @@
 const Queue = require('bull');
 const UploadJob = require('../models/uploadJob');
 
-// Redis connection configuration
+// Redis connection configuration with Azure Redis Cache support
 const redisConfig = {
   redis: {
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
+    host: process.env.REDIS_HOST || process.env.AZURE_REDIS_HOST || '127.0.0.1',
+    port: process.env.REDIS_PORT || process.env.AZURE_REDIS_PORT || 6379,
+    password: process.env.REDIS_PASSWORD || process.env.AZURE_REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null,
-    enableReadyCheck: false
+    enableReadyCheck: false,
+    lazyConnect: true, // Connect only when needed
+    connectTimeout: 10000, // 10 second connection timeout
+    retryDelayOnFailover: 100,
+    maxRetriesPerRequest: 3,
+    // Azure Redis specific settings
+    ...(process.env.AZURE_REDIS_HOST && {
+      tls: {
+        servername: process.env.AZURE_REDIS_HOST
+      }
+    })
   }
 };
 
-// Create Bull queue for video uploads
-const uploadQueue = new Queue('video-uploads', redisConfig);
+let uploadQueue = null;
+let queueAvailable = false;
 
-// Queue event listeners for monitoring
-uploadQueue.on('error', (error) => {
-  console.error('❌ [Upload Queue] Queue error:', error.message);
-});
+// Initialize queue with error handling
+try {
+  uploadQueue = new Queue('video-uploads', redisConfig);
+  
+  // Queue event listeners for monitoring
+  uploadQueue.on('error', (error) => {
+    console.error('❌ [Upload Queue] Queue error:', error.message);
+    queueAvailable = false;
+  });
 
-uploadQueue.on('failed', (job, error) => {
-  console.error(`❌ [Upload Queue] Job ${job.id} failed:`, error.message);
-});
+  uploadQueue.on('failed', (job, error) => {
+    console.error(`❌ [Upload Queue] Job ${job.id} failed:`, error.message);
+  });
 
-uploadQueue.on('completed', (job, result) => {
-  console.log(`✅ [Upload Queue] Job ${job.id} completed successfully`);
-});
+  uploadQueue.on('completed', (job, result) => {
+    console.log(`✅ [Upload Queue] Job ${job.id} completed successfully`);
+  });
 
-uploadQueue.on('stalled', (job) => {
-  console.warn(`⚠️ [Upload Queue] Job ${job.id} stalled, will retry`);
-});
+  uploadQueue.on('stalled', (job) => {
+    console.warn(`⚠️ [Upload Queue] Job ${job.id} stalled, will retry`);
+  });
+  
+  uploadQueue.on('ready', () => {
+    console.log('✅ [Upload Queue] Queue is ready');
+    queueAvailable = true;
+  });
+  
+  uploadQueue.on('connect', () => {
+    console.log('✅ [Upload Queue] Connected to Redis');
+    queueAvailable = true;
+  });
+  
+  uploadQueue.on('disconnect', () => {
+    console.warn('⚠️ [Upload Queue] Disconnected from Redis');
+    queueAvailable = false;
+  });
+  
+} catch (error) {
+  console.error('❌ [Upload Queue] Failed to initialize queue:', error.message);
+  console.log('📤 [Upload Queue] Queue system disabled, will use direct uploads');
+  uploadQueue = null;
+  queueAvailable = false;
+}
+
+/**
+ * Check if queue is available
+ * @returns {Promise<boolean>} Queue availability
+ */
+const isQueueAvailable = async () => {
+  if (!uploadQueue) return false;
+  
+  try {
+    // Test Redis connection
+    await uploadQueue.client.ping();
+    return true;
+  } catch (error) {
+    console.warn('⚠️ [Upload Queue] Queue not available:', error.message);
+    return false;
+  }
+};
 
 /**
  * Add upload job to queue
@@ -41,6 +95,11 @@ const addUploadJob = async (jobData) => {
   const { uploadId, userId, uploadType, type, file } = jobData;
   
   console.log(`📋 [Upload Queue] Adding job: ${uploadId} (${uploadType})`);
+  
+  // Check if queue is available
+  if (!uploadQueue || !await isQueueAvailable()) {
+    throw new Error('Upload queue is not available. Redis connection required.');
+  }
   
   // Create job in database
   const uploadJob = await UploadJob.create({
@@ -211,6 +270,7 @@ const cleanupOldJobs = async (daysOld = 7) => {
 
 module.exports = {
   uploadQueue,
+  isQueueAvailable,
   addUploadJob,
   getJobStatus,
   updateJobProgress,

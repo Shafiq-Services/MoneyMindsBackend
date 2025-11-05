@@ -12,18 +12,35 @@ const { addUploadJob, getJobStatus } = require('../utils/uploadQueue');
 // Configure multer for disk storage to handle large files efficiently
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../temp/uploads');
-    // Only use existing temp directory - don't create missing directories
+    // For Azure App Service, use the temp directory or fallback to OS temp
+    let uploadDir;
+    
+    if (process.env.NODE_ENV === 'production' && process.env.WEBSITE_SITE_NAME) {
+      // Azure App Service environment
+      uploadDir = process.env.TEMP || process.env.TMP || path.join(__dirname, '../temp/uploads');
+    } else {
+      // Local development
+      uploadDir = path.join(__dirname, '../temp/uploads');
+    }
+    
     try {
+      // Ensure directory exists, create if needed
       if (!fs.existsSync(uploadDir)) {
-        const error = new Error('Upload temp directory does not exist. Please ensure temp/uploads directory is created.');
-        console.error('❌ [Upload] Temp directory missing:', uploadDir);
-        return cb(error, null);
+        fs.mkdirSync(uploadDir, { recursive: true });
+        console.log('✅ [Upload] Created temp directory:', uploadDir);
       }
       cb(null, uploadDir);
     } catch (error) {
-      console.error('❌ [Upload] Error checking upload directory:', error.message);
-      cb(error, null);
+      console.error('❌ [Upload] Error with upload directory:', error.message);
+      // Fallback to OS temp directory
+      try {
+        const fallbackDir = require('os').tmpdir();
+        console.log('⚠️ [Upload] Using fallback temp directory:', fallbackDir);
+        cb(null, fallbackDir);
+      } catch (fallbackError) {
+        console.error('❌ [Upload] Fallback temp directory failed:', fallbackError.message);
+        cb(fallbackError, null);
+      }
     }
   },
   filename: (req, file, cb) => {
@@ -502,7 +519,26 @@ const queuedUpload = async (req, res, uploadType) => {
 };
 
 const queuedUploadVideo = async (req, res) => {
-  return queuedUpload(req, res, 'video');
+  // Try queued upload first, fallback to direct upload if queue is unavailable
+  try {
+    // Check if Redis/queue system is available
+    const { isQueueAvailable } = require('../utils/uploadQueue');
+    
+    const queueReady = await isQueueAvailable();
+    
+    if (queueReady) {
+      console.log('📋 [Upload] Queue system available, using queued upload');
+      return queuedUpload(req, res, 'video');
+    } else {
+      throw new Error('Queue system not available');
+    }
+  } catch (queueError) {
+    console.warn('⚠️ [Upload] Queue system unavailable, falling back to direct upload:', queueError.message);
+    console.log('📤 [Upload] Using direct video upload for Azure compatibility');
+    
+    // Fallback to direct upload
+    return unifiedUpload(req, res, 'video');
+  }
 };
 
 /**
@@ -558,6 +594,7 @@ const getUploadStatus = async (req, res) => {
 module.exports = {
   upload,
   uploadImage,
+  uploadVideo,
   uploadGeneralFile,
   queuedUploadVideo,
   getUploadStatus
