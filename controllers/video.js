@@ -1,4 +1,5 @@
 const Video = require('../models/video');
+const WatchProgress = require('../models/watchProgress');
 const Series = require('../models/series');
 const { parsePaginationParams } = require('../utils/pagination');
 const mongoose = require('mongoose');
@@ -281,39 +282,53 @@ const getRandomSuggestion = async (req, res) => {
 const getContinueWatching = async (req, res) => {
   try {
     const userId = req.userId;
+    console.log('🎬 [Continue Watching] Starting API call for user:', userId);
     
-    // Load user progress from database if not in memory for better consistency
-    if (!socketManager.videoProgress[userId] || Object.keys(socketManager.videoProgress[userId]).length === 0) {
-      await socketManager.loadUserWatchProgress(userId);
-    }
+    // Query database directly for user's watch progress (including 0% progress)
+    const watchProgressRecords = await WatchProgress.find({ 
+      userId: new mongoose.Types.ObjectId(userId),
+      contentType: 'video' // Only get video progress (not lessons or chat messages)
+    })
+    .sort({ lastUpdated: -1 }) // Most recently updated first
+    .lean();
+    
+    console.log('📊 [Continue Watching] Found', watchProgressRecords.length, 'progress records in database');
     
     const continueWatching = [];
     
-    // Check in-memory progress for films and episodes
-    if (socketManager.videoProgress[userId]) {
-      for (const [videoId, progress] of Object.entries(socketManager.videoProgress[userId])) {
-        if (progress.percentage > 0) {
-          // Get video details - more efficient query
-          const video = await Video.findById(videoId).lean();
-          if (video) {
-            continueWatching.push({
-              ...video,
-              watchProgress: progress.percentage,
-              watchSeconds: progress.seconds,
-              totalDuration: progress.totalDuration,
-              contentType: video.type === 'film' ? 'film' : 'episode'
-            });
-          }
+    // Process each progress record
+    for (const progressRecord of watchProgressRecords) {
+      try {
+        // Get video details from database
+        const video = await Video.findById(progressRecord.videoId).lean();
+        
+        if (video) {
+          console.log('📹 [Continue Watching] Processing:', video.title, '(' + progressRecord.percentage + '% watched)');
+          
+          continueWatching.push({
+            ...video,
+            watchProgress: progressRecord.percentage || 0,
+            watchSeconds: progressRecord.seconds || 0,
+            totalDuration: progressRecord.totalDuration || video.length || 0,
+            contentType: video.type === 'film' ? 'film' : 'episode',
+            lastWatchedAt: progressRecord.lastUpdated
+          });
+        } else {
+          console.log('⚠️ [Continue Watching] Video not found for progress record:', progressRecord.videoId);
         }
+      } catch (videoError) {
+        console.error('❌ [Continue Watching] Error processing video:', progressRecord.videoId, videoError.message);
       }
     }
     
-    // Sort by watch progress (highest first) and then by last watched time
+    // Sort by last watched time (most recent first), then by progress percentage
     continueWatching.sort((a, b) => {
-      if (b.watchProgress !== a.watchProgress) {
-        return b.watchProgress - a.watchProgress;
-      }
-      return new Date(b.lastWatchedAt || 0) - new Date(a.lastWatchedAt || 0);
+      // First sort by last watched time (most recent first)
+      const timeCompare = new Date(b.lastWatchedAt || 0) - new Date(a.lastWatchedAt || 0);
+      if (timeCompare !== 0) return timeCompare;
+      
+      // If same time, sort by progress percentage (highest first)
+      return b.watchProgress - a.watchProgress;
     });
     
     // Limit to 20 items as per original implementation
@@ -326,6 +341,8 @@ const getContinueWatching = async (req, res) => {
       posterUrl: convertToFullUrl(video.posterUrl),
       originalVideoUrl: convertToFullUrl(video.originalVideoUrl)
     }));
+
+    console.log('✅ [Continue Watching] Returning', resultsWithConvertedUrls.length, 'videos');
 
     return res.status(200).json({
       status: true,
