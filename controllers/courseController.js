@@ -324,10 +324,10 @@ const getContinueLearning = async (req, res) => {
       }, 'continueLearning');
     }
 
-    // Find lessons with progress - more efficient than complex aggregation
+    // Find lessons with progress - include both video and text-only lessons
     const lessonsWithProgress = await Lesson.find({
-      _id: { $in: progressVideoIds.map(id => new mongoose.Types.ObjectId(id)) },
-      videoUrl: { $ne: '' }
+      _id: { $in: progressVideoIds.map(id => new mongoose.Types.ObjectId(id)) }
+      // Removed videoUrl filter to include text-only lessons
     }).select('_id moduleId name videoUrl length').lean();
     
     if (lessonsWithProgress.length === 0) {
