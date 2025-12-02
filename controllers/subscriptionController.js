@@ -861,6 +861,7 @@ exports.getBillingInfo = async (req, res) => {
       return successResponse(res, 200, 'No billing info available - customer not created yet', {
         _id: null,
         name: null,
+        email: user.email,  // Include user email even when customer doesn't exist
         addressLine1: null,
         addressLine2: null,
         city: null,
@@ -876,6 +877,7 @@ exports.getBillingInfo = async (req, res) => {
     const billingInfo = {
       _id: customer.id,
       name: customer.name,
+      email: customer.email || user.email,  // Include email from Stripe or fallback to user email
       addressLine1: customer.address?.line1,
       addressLine2: customer.address?.line2,
       city: customer.address?.city,
