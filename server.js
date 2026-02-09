@@ -49,13 +49,15 @@ setTimeout(() => {
   initializeSubscriptionScheduler();
 }, 2000); // Wait a bit longer to ensure everything is initialized
 
-// Initialize Bull queue processor for video uploads
-console.log('🚀 [Upload Queue] Initializing upload queue processor...');
-uploadQueue.process(async (job) => {
-  console.log(`📋 [Upload Queue] Processing job: ${job.id}`);
-  return await processUploadJob(job);
-});
-console.log('✅ [Upload Queue] Upload queue processor initialized');
+// Initialize Bull queue processor for video uploads (only if Redis is configured)
+if (uploadQueue) {
+  console.log('🚀 [Upload Queue] Initializing upload queue processor...');
+  uploadQueue.process(async (job) => {
+    console.log(`📋 [Upload Queue] Processing job: ${job.id}`);
+    return await processUploadJob(job);
+  });
+  console.log('✅ [Upload Queue] Upload queue processor initialized');
+}
 
 // Stripe webhook endpoint
 // This route must be before `express.json()` to receive the raw body

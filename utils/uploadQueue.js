@@ -1,72 +1,88 @@
 const Queue = require('bull');
 const UploadJob = require('../models/uploadJob');
 
-// Redis connection configuration with Azure Redis Cache support
-const redisConfig = {
-  redis: {
-    host: process.env.REDIS_HOST || process.env.AZURE_REDIS_HOST || '127.0.0.1',
-    port: process.env.REDIS_PORT || process.env.AZURE_REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD || process.env.AZURE_REDIS_PASSWORD || undefined,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-    lazyConnect: true, // Connect only when needed
-    connectTimeout: 10000, // 10 second connection timeout
-    retryDelayOnFailover: 100,
-    maxRetriesPerRequest: 3,
-    // Azure Redis specific settings
-    ...(process.env.AZURE_REDIS_HOST && {
-      tls: {
-        servername: process.env.AZURE_REDIS_HOST
-      }
-    })
-  }
-};
-
 let uploadQueue = null;
 let queueAvailable = false;
+let errorLogged = false; // Prevent repeated error logging
 
-// Initialize queue with error handling
-try {
-  uploadQueue = new Queue('video-uploads', redisConfig);
-  
-  // Queue event listeners for monitoring
-  uploadQueue.on('error', (error) => {
-    console.error('❌ [Upload Queue] Queue error:', error.message);
+// Check if Redis is explicitly configured
+const isRedisConfigured = !!(process.env.REDIS_HOST || process.env.AZURE_REDIS_HOST);
+
+// Only initialize queue if Redis is configured
+if (isRedisConfigured) {
+  // Redis connection configuration with Azure Redis Cache support
+  const redisConfig = {
+    redis: {
+      host: process.env.REDIS_HOST || process.env.AZURE_REDIS_HOST,
+      port: process.env.REDIS_PORT || process.env.AZURE_REDIS_PORT || 6379,
+      password: process.env.REDIS_PASSWORD || process.env.AZURE_REDIS_PASSWORD || undefined,
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      lazyConnect: true, // Connect only when needed
+      connectTimeout: 10000, // 10 second connection timeout
+      retryDelayOnFailover: 100,
+      maxRetriesPerRequest: 3,
+      // Azure Redis specific settings
+      ...(process.env.AZURE_REDIS_HOST && {
+        tls: {
+          servername: process.env.AZURE_REDIS_HOST
+        }
+      })
+    }
+  };
+
+  // Initialize queue with error handling
+  try {
+    uploadQueue = new Queue('video-uploads', redisConfig);
+    
+    // Queue event listeners for monitoring
+    uploadQueue.on('error', (error) => {
+      if (!errorLogged) {
+        console.error('❌ [Upload Queue] Queue error:', error.message);
+        console.log('📤 [Upload Queue] Falling back to direct uploads');
+        errorLogged = true;
+      }
+      queueAvailable = false;
+    });
+
+    uploadQueue.on('failed', (job, error) => {
+      console.error(`❌ [Upload Queue] Job ${job.id} failed:`, error.message);
+    });
+
+    uploadQueue.on('completed', (job, result) => {
+      console.log(`✅ [Upload Queue] Job ${job.id} completed successfully`);
+    });
+
+    uploadQueue.on('stalled', (job) => {
+      console.warn(`⚠️ [Upload Queue] Job ${job.id} stalled, will retry`);
+    });
+    
+    uploadQueue.on('ready', () => {
+      console.log('✅ [Upload Queue] Queue is ready');
+      queueAvailable = true;
+      errorLogged = false; // Reset error flag on successful connection
+    });
+    
+    uploadQueue.on('connect', () => {
+      console.log('✅ [Upload Queue] Connected to Redis');
+      queueAvailable = true;
+      errorLogged = false; // Reset error flag on successful connection
+    });
+    
+    uploadQueue.on('disconnect', () => {
+      console.warn('⚠️ [Upload Queue] Disconnected from Redis');
+      queueAvailable = false;
+    });
+    
+  } catch (error) {
+    console.error('❌ [Upload Queue] Failed to initialize queue:', error.message);
+    console.log('📤 [Upload Queue] Queue system disabled, will use direct uploads');
+    uploadQueue = null;
     queueAvailable = false;
-  });
-
-  uploadQueue.on('failed', (job, error) => {
-    console.error(`❌ [Upload Queue] Job ${job.id} failed:`, error.message);
-  });
-
-  uploadQueue.on('completed', (job, result) => {
-    console.log(`✅ [Upload Queue] Job ${job.id} completed successfully`);
-  });
-
-  uploadQueue.on('stalled', (job) => {
-    console.warn(`⚠️ [Upload Queue] Job ${job.id} stalled, will retry`);
-  });
-  
-  uploadQueue.on('ready', () => {
-    console.log('✅ [Upload Queue] Queue is ready');
-    queueAvailable = true;
-  });
-  
-  uploadQueue.on('connect', () => {
-    console.log('✅ [Upload Queue] Connected to Redis');
-    queueAvailable = true;
-  });
-  
-  uploadQueue.on('disconnect', () => {
-    console.warn('⚠️ [Upload Queue] Disconnected from Redis');
-    queueAvailable = false;
-  });
-  
-} catch (error) {
-  console.error('❌ [Upload Queue] Failed to initialize queue:', error.message);
-  console.log('📤 [Upload Queue] Queue system disabled, will use direct uploads');
-  uploadQueue = null;
-  queueAvailable = false;
+  }
+} else {
+  // Redis not configured - skip queue initialization entirely
+  console.log('ℹ️ [Upload Queue] Redis not configured (set REDIS_HOST to enable). Using direct uploads.');
 }
 
 /**
