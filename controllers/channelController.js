@@ -111,6 +111,10 @@ const sendMessage = async (req, res) => {
       return errorResponse(res, 404, 'Channel not found');
     }
     
+    if (!channel.campusId) {
+      return errorResponse(res, 404, 'Campus not found for this channel');
+    }
+    
     // Allow access to Money Minds campus for all users (virtual campus)
     if (!channel.campusId.isMoneyMindsCampus) {
       // Check user is member of campus for regular campuses
@@ -150,11 +154,15 @@ const getChannelMembers = async (req, res) => {
       return errorResponse(res, 404, 'Channel not found');
     }
     
+    if (!channel.campusId) {
+      return errorResponse(res, 404, 'Campus not found for this channel');
+    }
+    
     let members = [];
     
     // For Money Minds campus, show all users (virtual campus)
     if (channel.campusId.isMoneyMindsCampus) {
-      members = await User.find({}, 'email firstName lastName username avatar bio country createdAt')
+      members = await User.find({}, 'email firstName lastName username avatar bio country createdAt role')
         .sort({ createdAt: -1 })
         .limit(100); // Limit to prevent overwhelming response
     } else {
@@ -164,7 +172,7 @@ const getChannelMembers = async (req, res) => {
         return errorResponse(res, 403, 'You must be a member of this campus to view members');
       }
       // List all campus members
-      members = await User.find({ _id: { $in: campus.members.map(m => m.userId) } }, 'email firstName lastName username avatar bio country createdAt');
+      members = await User.find({ _id: { $in: campus.members.map(m => m.userId) } }, 'email firstName lastName username avatar bio country createdAt role');
     }
     
     return successResponse(res, 200, 'Channel members listed successfully', members, 'members');
@@ -187,6 +195,10 @@ const getChannelMessages = async (req, res) => {
       return errorResponse(res, 404, 'Channel not found');
     }
     
+    if (!channel.campusId) {
+      return errorResponse(res, 404, 'Campus not found for this channel');
+    }
+    
     // Allow access to Money Minds campus for all users (virtual campus)
     if (!channel.campusId.isMoneyMindsCampus) {
       // Check user is member of campus for regular campuses
@@ -207,7 +219,7 @@ const getChannelMessages = async (req, res) => {
         pageNo,
         itemsPerPage,
         sort: { createdAt: -1 },
-        populate: { path: 'userId', select: 'email firstName lastName avatar username bio country createdAt' }
+        populate: { path: 'userId', select: 'email firstName lastName avatar username bio country createdAt role' }
       }
     );
     // Format messages
