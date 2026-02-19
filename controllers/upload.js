@@ -207,6 +207,29 @@ const unifiedUpload = async (req, res, uploadType) => {
       return errorResponse(res, 400, `No ${uploadType} file provided`);
     }
 
+    // Disk space validation for videos (critical for large files)
+    if (uploadType === 'video') {
+      try {
+        const checkDiskSpace = require('check-disk-space');
+        const uploadDir = path.dirname(req.file.path);
+        const stats = await checkDiskSpace(uploadDir);
+        
+        // Required space: original file + transcoded output (estimate 2.5x original for HLS)
+        const requiredBytes = req.file.size * 2.5;
+        
+        if (stats.free < requiredBytes) {
+          cleanupTempFile(req.file.path);
+          return errorResponse(res, 507, 'Insufficient disk space', 
+            `Server needs ${(requiredBytes / 1024 / 1024 / 1024).toFixed(2)}GB but only has ${(stats.free / 1024 / 1024 / 1024).toFixed(2)}GB available`);
+        }
+        
+        console.log(`✅ [Upload] Disk space check passed: ${(stats.free / 1024 / 1024 / 1024).toFixed(2)}GB available`);
+      } catch (diskError) {
+        // If check-disk-space fails, log warning but continue (graceful degradation)
+        console.warn('⚠️ [Upload] Disk space check failed, continuing anyway:', diskError.message);
+      }
+    }
+
     // File size validation
     const maxSizes = {
       'image': 10 * 1024 * 1024, // 10MB
@@ -268,7 +291,12 @@ const unifiedUpload = async (req, res, uploadType) => {
     });
 
     // Upload file with timeout protection
-    console.log(`📤 [Upload] Starting ${uploadType} upload for user ${req.userId}: ${req.file.originalname}`);
+    // Calculate timeout based on file size: 30 minutes base + 1 minute per 100MB
+    const fileSizeMB = req.file.size / (1024 * 1024);
+    const uploadTimeout = Math.max(30 * 60 * 1000, 30 * 60 * 1000 + (fileSizeMB / 100) * 60 * 1000);
+    const timeoutMinutes = Math.ceil(uploadTimeout / (60 * 1000));
+    
+    console.log(`📤 [Upload] Starting ${uploadType} upload for user ${req.userId}: ${req.file.originalname} (${fileSizeMB.toFixed(2)}MB, timeout: ${timeoutMinutes}min)`);
     
     const uploadResult = await Promise.race([
       uploadFileSmart(req.file.path, fileName, (progressData) => {
@@ -283,7 +311,7 @@ const unifiedUpload = async (req, res, uploadType) => {
         });
       }),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Upload timeout after 10 minutes')), 10 * 60 * 1000)
+        setTimeout(() => reject(new Error(`Upload timeout after ${timeoutMinutes} minutes`)), uploadTimeout)
       )
     ]);
     
@@ -301,8 +329,28 @@ const unifiedUpload = async (req, res, uploadType) => {
         message: 'Starting video transcoding...'
       });
 
-      const buffer = fs.readFileSync(req.file.path);
-      transcodeResult = await transcodeToHLS(buffer, uploadId, type);
+      // Progress callback for transcoding
+      const progressCallback = (progressData) => {
+        safeSocketBroadcast('broadcastUploadProgress', req.userId, {
+          uploadType,
+          uploadId,
+          videoType: type,
+          stage: 'transcoding',
+          progress: progressData.overallProgress,
+          message: progressData.message,
+          resolution: progressData.resolution,
+          resolutionProgress: progressData.resolutionProgress
+        });
+      };
+
+      // Transcoding with extended timeout (2 hours for 4K videos)
+      const transcodePromise = transcodeToHLS(req.file.path, uploadId, type, progressCallback);
+      const transcodeTimeout = 2 * 60 * 60 * 1000; // 2 hours
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Transcoding timeout after 2 hours')), transcodeTimeout)
+      );
+      
+      transcodeResult = await Promise.race([transcodePromise, timeoutPromise]);
 
       safeSocketBroadcast('broadcastUploadProgress', req.userId, {
         uploadType,
@@ -433,6 +481,29 @@ const queuedUpload = async (req, res, uploadType) => {
 
     if (!req.file) {
       return errorResponse(res, 400, `No ${uploadType} file provided`);
+    }
+
+    // Disk space validation for videos (critical for large files)
+    if (uploadType === 'video') {
+      try {
+        const checkDiskSpace = require('check-disk-space');
+        const uploadDir = path.dirname(req.file.path);
+        const stats = await checkDiskSpace(uploadDir);
+        
+        // Required space: original file + transcoded output (estimate 2.5x original for HLS)
+        const requiredBytes = req.file.size * 2.5;
+        
+        if (stats.free < requiredBytes) {
+          cleanupTempFile(req.file.path);
+          return errorResponse(res, 507, 'Insufficient disk space', 
+            `Server needs ${(requiredBytes / 1024 / 1024 / 1024).toFixed(2)}GB but only has ${(stats.free / 1024 / 1024 / 1024).toFixed(2)}GB available`);
+        }
+        
+        console.log(`✅ [Upload] Disk space check passed: ${(stats.free / 1024 / 1024 / 1024).toFixed(2)}GB available`);
+      } catch (diskError) {
+        // If check-disk-space fails, log warning but continue (graceful degradation)
+        console.warn('⚠️ [Upload] Disk space check failed, continuing anyway:', diskError.message);
+      }
     }
 
     // File size validation

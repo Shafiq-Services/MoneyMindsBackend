@@ -6,3 +6,4 @@ Money Minds.postman_collection.json
 .utils/socketTester.js
 .scripts/
 temp/
+.DS_Store

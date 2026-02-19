@@ -117,6 +117,13 @@ const processUploadJob = async (job) => {
     // Upload file to B2 with progress tracking
     console.log(`📤 [Upload Processor] Uploading to B2: ${fileName}`);
     
+    // Calculate timeout based on file size: 30 minutes base + 1 minute per 100MB
+    const fileSizeMB = fileSize / (1024 * 1024);
+    const uploadTimeout = Math.max(30 * 60 * 1000, 30 * 60 * 1000 + (fileSizeMB / 100) * 60 * 1000);
+    const timeoutMinutes = Math.ceil(uploadTimeout / (60 * 1000));
+    
+    console.log(`⏱️ [Upload Processor] Upload timeout set to ${timeoutMinutes} minutes for ${fileSizeMB.toFixed(2)}MB file`);
+    
     const uploadResult = await Promise.race([
       uploadFileSmart(tempFilePath, fileName, async (progressData) => {
         // Update database
@@ -140,7 +147,7 @@ const processUploadJob = async (job) => {
         });
       }),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Upload timeout after 10 minutes')), 10 * 60 * 1000)
+        setTimeout(() => reject(new Error(`Upload timeout after ${timeoutMinutes} minutes`)), uploadTimeout)
       )
     ]);
     
@@ -167,19 +174,52 @@ const processUploadJob = async (job) => {
       
       console.log(`🎬 [Upload Processor] Transcoding video: ${uploadId}`);
       
-      let buffer;
+      // Progress callback for transcoding
+      const progressCallback = (progressData) => {
+        // Update database
+        updateJobProgress(uploadId, {
+          stage: 'transcoding',
+          progress: progressData.overallProgress,
+          message: progressData.message
+        }).catch(err => console.warn('Failed to update job progress:', err.message));
+        
+        // Broadcast to client via socket
+        safeSocketBroadcast('broadcastUploadProgress', userId, {
+          uploadType,
+          uploadId,
+          videoType: type,
+          stage: 'transcoding',
+          progress: progressData.overallProgress,
+          message: progressData.message,
+          resolution: progressData.resolution,
+          resolutionProgress: progressData.resolutionProgress
+        });
+      };
+      
+      // Use file path directly instead of loading into memory (memory optimization)
+      let videoInput = tempFilePath;
       try {
-        // Try reading local temp file first
-        buffer = fs.readFileSync(tempFilePath);
+        // Verify file exists
+        if (!fs.existsSync(tempFilePath)) {
+          throw new Error('Temp file not found');
+        }
       } catch (readErr) {
         console.warn(`⚠️ [Upload Processor] Temp file missing, downloading original from storage: ${readErr.message}`);
         // Fallback: download the just-uploaded original from CDN/B2
+        // Note: This still uses buffer, but only as fallback
         const originalUrl = convertToFullUrl(uploadResult.fileUrl);
         const resp = await axios.get(originalUrl, { responseType: 'arraybuffer', timeout: 600000 });
-        buffer = Buffer.from(resp.data);
+        videoInput = Buffer.from(resp.data);
       }
       
-      transcodeResult = await transcodeToHLS(buffer, uploadId, type);
+      // Transcoding with extended timeout (2 hours for 4K videos)
+      const transcodePromise = transcodeToHLS(videoInput, uploadId, type, progressCallback);
+      const transcodeTimeout = 2 * 60 * 60 * 1000; // 2 hours
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Transcoding timeout after 2 hours')), transcodeTimeout)
+      );
+      
+      transcodeResult = await Promise.race([transcodePromise, timeoutPromise]);
       
       await updateJobProgress(uploadId, {
         stage: 'transcoding',

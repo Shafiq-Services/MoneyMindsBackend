@@ -23,38 +23,63 @@ if (os.platform() === 'linux') {
   console.log(`🎬 [FFmpeg] Using system FFmpeg on ${os.platform()}`);
 }
 
-const getVideoResolution = (videoBuffer) => {
+const getVideoResolution = (videoInput) => {
   return new Promise((resolve, reject) => {
-    const tempPath = path.join(__dirname, '../temp', `temp_${Date.now()}.mp4`);
+    // videoInput can be either a file path (string) or buffer
+    const isFilePath = typeof videoInput === 'string';
     
-    // Ensure temp directory exists
-    const tempDir = path.dirname(tempPath);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
+    if (isFilePath) {
+      // Use file path directly - no need to write buffer
+      ffmpeg.ffprobe(videoInput, (err, metadata) => {
+        if (err) {
+          reject(err);
+          return;
+        }
 
-    fs.writeFileSync(tempPath, videoBuffer);
-
-    ffmpeg.ffprobe(tempPath, (err, metadata) => {
-      // Clean up temp file
-      fs.unlinkSync(tempPath);
+        const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+        if (videoStream) {
+          resolve({
+            width: videoStream.width,
+            height: videoStream.height,
+            duration: metadata.format.duration,
+          });
+        } else {
+          reject(new Error('No video stream found'));
+        }
+      });
+    } else {
+      // Legacy support: buffer input (for backward compatibility)
+      const tempPath = path.join(__dirname, '../temp', `temp_${Date.now()}.mp4`);
       
-      if (err) {
-        reject(err);
-        return;
+      // Ensure temp directory exists
+      const tempDir = path.dirname(tempPath);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
       }
 
-      const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
-      if (videoStream) {
-        resolve({
-          width: videoStream.width,
-          height: videoStream.height,
-          duration: metadata.format.duration,
-        });
-      } else {
-        reject(new Error('No video stream found'));
-      }
-    });
+      fs.writeFileSync(tempPath, videoInput);
+
+      ffmpeg.ffprobe(tempPath, (err, metadata) => {
+        // Clean up temp file
+        fs.unlinkSync(tempPath);
+        
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+        if (videoStream) {
+          resolve({
+            width: videoStream.width,
+            height: videoStream.height,
+            duration: metadata.format.duration,
+          });
+        } else {
+          reject(new Error('No video stream found'));
+        }
+      });
+    }
   });
 };
 
@@ -83,9 +108,12 @@ const getVideoFolder = (videoType) => {
   return videoFolders[videoType] || 'videos/films';
 };
 
-const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
+const transcodeToHLS = async (videoInput, videoId, videoType = 'film', progressCallback = null) => {
   try {
-    const { width, height, duration } = await getVideoResolution(videoBuffer);
+    // videoInput can be either a file path (string) or buffer (for backward compatibility)
+    const isFilePath = typeof videoInput === 'string';
+    
+    const { width, height, duration } = await getVideoResolution(videoInput);
     const resolutions = generateHLSResolutions(height);
     
     // Use system temp directory to avoid issues with spaces in path
@@ -102,9 +130,12 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    // Save input video temporarily
-    const inputPath = path.join(tempDir, 'input.mp4');
-    fs.writeFileSync(inputPath, videoBuffer);
+    // Use file path directly if available, otherwise use buffer (legacy)
+    const inputPath = isFilePath ? videoInput : path.join(tempDir, 'input.mp4');
+    if (!isFilePath) {
+      // Legacy: save buffer to temp file
+      fs.writeFileSync(inputPath, videoInput);
+    }
 
     const masterPlaylist = [];
     const uploadPromises = [];
@@ -114,7 +145,8 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
     const videoFolder = getVideoFolder(videoType);
 
     // Generate HLS for each resolution
-    for (const resolution of resolutions) {
+    for (let i = 0; i < resolutions.length; i++) {
+      const resolution = resolutions[i];
       const outputPath = path.join(outputDir, `${resolution.height}p`);
       const playlistName = `${resolution.height}p.m3u8`;
       
@@ -131,6 +163,10 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
       console.log(`   Segments: ${segmentPath}`);
 
       await new Promise((resolve, reject) => {
+        // Capture loop index in closure
+        const resolutionIndex = i;
+        const resolutionWeight = 100 / resolutions.length;
+        
         const command = ffmpeg(inputPath)
           .outputOptions([
             '-c:v libx264',
@@ -148,9 +184,51 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
           ])
           .output(playlistOutputPath);
 
+        let lastProgress = 0;
+        
+        // Parse FFmpeg progress output for real-time updates
+        command.on('stderr', (stderrLine) => {
+          // FFmpeg outputs progress like: time=00:00:05.00
+          const timeMatch = stderrLine.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+          if (timeMatch && duration && progressCallback) {
+            const hours = parseInt(timeMatch[1]);
+            const minutes = parseInt(timeMatch[2]);
+            const seconds = parseInt(timeMatch[3]);
+            const centiseconds = parseInt(timeMatch[4]);
+            const currentTime = hours * 3600 + minutes * 60 + seconds + centiseconds / 100;
+            
+            const resolutionProgress = Math.min(100, Math.round((currentTime / duration) * 100));
+            
+            // Only update if progress changed significantly (avoid spam)
+            if (resolutionProgress > lastProgress + 1) {
+              lastProgress = resolutionProgress;
+              
+              // Calculate overall progress across all resolutions
+              const overallProgress = Math.round((resolutionIndex / resolutions.length) * 100 + (resolutionProgress * resolutionWeight / 100));
+              
+              progressCallback({
+                resolution: `${resolution.height}p`,
+                resolutionProgress: resolutionProgress,
+                overallProgress: overallProgress,
+                message: `Transcoding ${resolution.height}p: ${resolutionProgress}%`
+              });
+            }
+          }
+        });
+
         command
           .on('end', () => {
             completedResolutions++;
+            // Final progress update for this resolution
+            if (progressCallback) {
+              const overallProgress = Math.round(((resolutionIndex + 1) / resolutions.length) * 100);
+              progressCallback({
+                resolution: `${resolution.height}p`,
+                resolutionProgress: 100,
+                overallProgress: overallProgress,
+                message: `Completed ${resolution.height}p transcoding`
+              });
+            }
             resolve();
           })
           .on('error', reject)
@@ -210,8 +288,27 @@ const transcodeToHLS = async (videoBuffer, videoId, videoType = 'film') => {
     // Wait for all uploads to complete
     await Promise.all(uploadPromises);
 
-    // Clean up temp files
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    // Clean up temp files (only if we created them - don't delete original input file)
+    if (!isFilePath) {
+      // Only clean up if we created temp files from buffer
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } else {
+      // Clean up transcoding output but keep original input file
+      try {
+        if (fs.existsSync(outputDir)) {
+          fs.rmSync(outputDir, { recursive: true, force: true });
+        }
+        // Clean up parent temp dir if empty
+        if (fs.existsSync(tempDir)) {
+          const files = fs.readdirSync(tempDir);
+          if (files.length === 0) {
+            fs.rmdirSync(tempDir);
+          }
+        }
+      } catch (cleanupError) {
+        console.warn('⚠️ [FFmpeg] Cleanup warning:', cleanupError.message);
+      }
+    }
 
     const videoUrl = `${videoFolder}/${videoId}/master.m3u8`; // Store relative path only
 
