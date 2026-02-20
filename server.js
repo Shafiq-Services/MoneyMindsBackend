@@ -117,7 +117,8 @@ function validateEnvironmentVariables() {
 
 validateEnvironmentVariables();
 
-// Routes
+// Routes (proxy is public so browser can load images/video without CORS)
+app.use("/api/proxy", require('./routes/proxy'));
 app.use("/api/user", require('./routes/user'));
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/video", require('./routes/video'));

@@ -8,6 +8,15 @@ const { addVideoResolutionsToArray } = require('../utils/videoResolutions');
 const { addProgressToItem } = require('../utils/progressHelper');
 const { convertToFullUrl } = require('../utils/urlHelper');
 
+/** If url is external (http(s)), return proxy URL so browser avoids CORS/hotlink blocking */
+function toProxyUrlIfExternal(proxyBase, url, type) {
+  if (!url || typeof url !== 'string') return url;
+  const u = url.trim();
+  if (!u.startsWith('http://') && !u.startsWith('https://')) return url;
+  if (u.includes('/api/proxy/' + type)) return url;
+  return `${proxyBase}/${type}?url=${encodeURIComponent(u)}`;
+}
+
 const getRandomFilms = async (req, res) => {
   try {
     const pagination = parsePaginationParams(req.query);
@@ -31,13 +40,18 @@ const getRandomFilms = async (req, res) => {
     // Add resolutions to all films efficiently
     const filmsWithResolutions = addVideoResolutionsToArray(filmsWithProgress);
     
-    // Convert URLs to full Azure CDN format
-    const filmsWithConvertedUrls = filmsWithResolutions.map(film => ({
-      ...film,
-      videoUrl: convertToFullUrl(film.videoUrl),
-      posterUrl: convertToFullUrl(film.posterUrl),
-      originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
-    }));
+    // Convert URLs to full format and proxy external URLs for CORS/hotlink
+    const proxyBase = `${req.protocol}://${req.get('host')}/api/proxy`;
+    const filmsWithConvertedUrls = filmsWithResolutions.map(film => {
+      const videoUrl = convertToFullUrl(film.videoUrl);
+      const posterUrl = convertToFullUrl(film.posterUrl);
+      return {
+        ...film,
+        videoUrl: toProxyUrlIfExternal(proxyBase, videoUrl, 'video'),
+        posterUrl: toProxyUrlIfExternal(proxyBase, posterUrl, 'image'),
+        originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
+      };
+    });
     
     const totalCount = await Video.countDocuments({ type: 'film' });
     const totalPages = Math.ceil(totalCount / pagination.perPage);
@@ -120,13 +134,46 @@ const getPopularFilms = async (req, res) => {
     // Add resolutions to all films efficiently
     const filmsWithResolutions = addVideoResolutionsToArray(filmsWithProgress);
 
-    // Convert URLs to full Azure CDN format
-    const filmsWithConvertedUrls = filmsWithResolutions.map(film => ({
-      ...film,
-      videoUrl: convertToFullUrl(film.videoUrl),
-      posterUrl: convertToFullUrl(film.posterUrl),
-      originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
-    }));
+    // Convert URLs to full format, then proxy external URLs so thumbnail/video work (CORS, hotlink)
+    const proxyBase = `${req.protocol}://${req.get('host')}/api/proxy`;
+    let filmsWithConvertedUrls = filmsWithResolutions.map(film => {
+      const videoUrl = convertToFullUrl(film.videoUrl);
+      const posterUrl = convertToFullUrl(film.posterUrl);
+      return {
+        ...film,
+        videoUrl: toProxyUrlIfExternal(proxyBase, videoUrl, 'video'),
+        posterUrl: toProxyUrlIfExternal(proxyBase, posterUrl, 'image'),
+        originalVideoUrl: convertToFullUrl(film.originalVideoUrl)
+      };
+    });
+
+    // Pin featured popular film first (video id in URL or env FEATURED_FILM_VIDEO_ID)
+    const FEATURED_FILM_VIDEO_ID = process.env.FEATURED_FILM_VIDEO_ID || '0611a014-9103-406a-a52b-0ad981ddb461';
+    const featuredIndex = filmsWithConvertedUrls.findIndex(
+      f => f.videoUrl && f.videoUrl.includes(FEATURED_FILM_VIDEO_ID)
+    );
+    if (featuredIndex >= 0) {
+      const [featured] = filmsWithConvertedUrls.splice(featuredIndex, 1);
+      filmsWithConvertedUrls.unshift(featured);
+    } else {
+      const featuredDoc = await Video.findOne({
+        type: 'film',
+        videoUrl: new RegExp(FEATURED_FILM_VIDEO_ID.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      }).lean();
+      if (featuredDoc) {
+        const withProgress = addProgressToItem(req.userId, featuredDoc);
+        const [withRes] = addVideoResolutionsToArray([withProgress]);
+        const fVideo = convertToFullUrl(withRes.videoUrl);
+        const fPoster = convertToFullUrl(withRes.posterUrl);
+        const featured = {
+          ...withRes,
+          videoUrl: toProxyUrlIfExternal(proxyBase, fVideo, 'video'),
+          posterUrl: toProxyUrlIfExternal(proxyBase, fPoster, 'image'),
+          originalVideoUrl: convertToFullUrl(withRes.originalVideoUrl)
+        };
+        filmsWithConvertedUrls = [featured, ...filmsWithConvertedUrls.filter(f => f._id.toString() !== featuredDoc._id.toString())];
+      }
+    }
 
     return res.status(200).json({
       status: true,
