@@ -72,6 +72,19 @@ const calculateSha1 = (buffer) => {
 };
 
 /**
+ * Calculate SHA-1 hash of a file by streaming (no full buffer in memory)
+ */
+const calculateSha1FromStream = (filePath) => {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha1");
+    const stream = fs.createReadStream(filePath, { highWaterMark: 64 * 1024 });
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+    stream.on("error", reject);
+  });
+};
+
+/**
  * Upload a single part with retry logic using official B2 API
  */
 const uploadPartWithRetry = async (
@@ -146,10 +159,12 @@ const uploadPartWithRetry = async (
         }
       }
 
-      const uploadTime = ((Date.now() - partStartTime) / 1000).toFixed(1);
+      const partDurationMs = Date.now() - partStartTime;
+      const partSpeedMBs = partSize / (1024 * 1024) / (partDurationMs / 1000);
       console.log(
-        `✅ Part ${partNumber} uploaded successfully in ${uploadTime}s`
+        `✅ Part ${partNumber} uploaded successfully in ${(partDurationMs / 1000).toFixed(1)}s`
       );
+      console.log(`[Upload Analytics] part_upload part=${partNumber} durationMs=${partDurationMs} sizeMB=${(partSize / (1024 * 1024)).toFixed(2)} speedMBs=${partSpeedMBs.toFixed(3)}`);
 
       return {
         ...result.data,
@@ -234,12 +249,20 @@ const uploadLargeFileOfficial = async (
     const totalParts = Math.ceil(fileSize / config.partSize);
     let maxConcurrent = config.concurrency;
 
-    // Apply network-based adjustments
+    // Apply network-based adjustments. On slow links use 1 stream so it gets full bandwidth (avoids two streams competing and one stalling).
     if (networkInfo) {
       maxConcurrent = Math.round(maxConcurrent * networkInfo.networkMultiplier);
-      console.log(
-        `🌐 Network-adjusted concurrency: ${maxConcurrent} (multiplier: ${networkInfo.networkMultiplier})`
-      );
+      if (networkInfo.networkMultiplier < 1) {
+        maxConcurrent = 1;
+        console.log(
+          `🌐 Slow link: using 1 concurrent upload (full bandwidth to single stream)`
+        );
+      } else {
+        maxConcurrent = Math.max(2, maxConcurrent);
+        console.log(
+          `🌐 Network-adjusted concurrency: ${maxConcurrent} (multiplier: ${networkInfo.networkMultiplier})`
+        );
+      }
     }
 
     const { partSize } = config;
@@ -261,6 +284,7 @@ const uploadLargeFileOfficial = async (
     console.log(
       `📤 Uploading ${totalParts} parts with ${maxConcurrent} concurrent threads...`
     );
+    console.log(`[Upload Analytics] large_upload_config fileSizeMB=${(fileSize / (1024 * 1024)).toFixed(2)} totalParts=${totalParts} partSizeMB=${(partSize / (1024 * 1024)).toFixed(1)} concurrency=${maxConcurrent}`);
 
     // Create all part upload tasks
     const partUploadTasks = [];
@@ -345,8 +369,13 @@ const uploadLargeFileOfficial = async (
         })
       );
 
-      const batchTime = ((Date.now() - batchStartTime) / 1000).toFixed(1);
-      console.log(`📊 Batch completed in ${batchTime}s`);
+      const batchDurationMs = Date.now() - batchStartTime;
+      const batchPartNumbers = batch.map((t) => t.partNumber).join(",");
+      const elapsedSoFarMs = Date.now() - startTime;
+      const uploadedSoFarMB = (completedParts * partSize) / (1024 * 1024);
+      const avgSpeedMBs = uploadedSoFarMB / (elapsedSoFarMs / 1000);
+      console.log(`📊 Batch completed in ${(batchDurationMs / 1000).toFixed(1)}s`);
+      console.log(`[Upload Analytics] large_upload_batch parts=[${batchPartNumbers}] batchDurationMs=${batchDurationMs} completedParts=${completedParts}/${totalParts} elapsedMs=${elapsedSoFarMs} avgSpeedMBs=${avgSpeedMBs.toFixed(3)}`);
 
       // Filter successful results and handle failures
       const successfulResults = [];
@@ -439,18 +468,15 @@ const uploadLargeFileOfficial = async (
       throw finishError;
     }
 
-    const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    const largeUploadTotalMs = Date.now() - startTime;
+    const largeUploadSpeedMBs = (fileSize / (1024 * 1024)) / (largeUploadTotalMs / 1000);
     console.log(
-      `✅ Large file upload completed in ${uploadTime}s: ${finishResult.data.fileName}`
+      `✅ Large file upload completed in ${(largeUploadTotalMs / 1000).toFixed(1)}s: ${finishResult.data.fileName}`
     );
     console.log(
-      `🚀 Average speed: ${(
-        fileSize /
-        ((Date.now() - startTime) / 1000) /
-        1024 /
-        1024
-      ).toFixed(2)} MB/s`
+      `🚀 Average speed: ${largeUploadSpeedMBs.toFixed(2)} MB/s`
     );
+    console.log(`[Upload Analytics] large_upload_done durationMs=${largeUploadTotalMs} fileSizeMB=${(fileSize / (1024 * 1024)).toFixed(2)} avgSpeedMBs=${largeUploadSpeedMBs.toFixed(3)} totalParts=${uploadedParts.length}`);
 
     if (progressCallback) {
       progressCallback({
@@ -533,10 +559,8 @@ const uploadSmallFileOfficial = async (
   }
 
   try {
-    // Authorize first
     await authorize();
 
-    // Get upload URL
     const uploadUrlResponse = await b2.getUploadUrl({
       bucketId: process.env.B2_BUCKET_ID,
     });
@@ -544,35 +568,11 @@ const uploadSmallFileOfficial = async (
     const uploadUrl = uploadUrlResponse.data.uploadUrl;
     const authToken = uploadUrlResponse.data.authorizationToken;
 
-    // Read file into buffer ONCE and calculate SHA1 from the exact buffer being uploaded
-    const buffer = fs.readFileSync(filePath);
-    const sha1 = calculateSha1(buffer);
-    
-    // Use actual buffer size for transcoding scenarios (FFmpeg may still be writing)
-    const actualFileSize = buffer.length;
-    
-    // Flexible validation for FFmpeg transcoding - only warn if size difference is significant
-    // This accommodates FFmpeg writing segments during concurrent processing
-    const sizeDifference = Math.abs(actualFileSize - fileSize);
-    const sizePercentDiff = fileSize > 0 ? sizeDifference / fileSize : 0;
-    
-    if (sizePercentDiff > 0.5) {
-      console.warn(`⚠️ [B2 Upload] Significant file size change during processing:`);
-      console.warn(`⚠️ [B2 Upload] Expected: ${fileSize} bytes, Actual: ${actualFileSize} bytes`);
-      console.warn(`⚠️ [B2 Upload] This may indicate FFmpeg is still writing. Using actual buffer size.`);
-    } else if (sizeDifference > 0) {
-      console.log(`ℹ️ [B2 Upload] Minor file size change: ${fileSize} → ${actualFileSize} bytes (normal for transcoding)`);
-    }
+    // Compute SHA1 by streaming (no full buffer in memory)
+    const sha1 = await calculateSha1FromStream(filePath);
 
-    console.log(
-      `🚀 Starting direct upload... (${
-        actualFileSize
-      } bytes, SHA1: ${sha1.substring(0, 8)}...)`
-    );
-
-    // Determine content type based on file extension
-    const getContentType = (fileName) => {
-      const ext = path.extname(fileName).toLowerCase();
+    const getContentType = (name) => {
+      const ext = path.extname(name).toLowerCase();
       const contentTypes = {
         ".m3u8": "application/vnd.apple.mpegurl",
         ".ts": "video/mp2t",
@@ -594,34 +594,25 @@ const uploadSmallFileOfficial = async (
     };
 
     const contentType = getContentType(fileName);
-    console.log(`📋 Content-Type: ${contentType}`);
 
-    // Log final validation before upload
-    console.log(`🔍 Pre-upload validation:`);
-    console.log(`   File: ${fileName}`);
-    console.log(`   Actual buffer size: ${actualFileSize} bytes`);
-    console.log(`   Original file size: ${fileSize} bytes`);
-    console.log(`   Size difference: ${sizeDifference} bytes (${(sizePercentDiff * 100).toFixed(1)}%)`);
-    console.log(`   SHA1: ${sha1}`);
-    console.log(`   Content-Type: ${contentType}`);
-
-    // Upload file with the EXACT buffer that was hashed
+    // Upload using stream (second read; no full buffer)
+    const readStream = fs.createReadStream(filePath);
     const result = await b2.uploadFile({
-      uploadUrl: uploadUrl,
+      uploadUrl,
       uploadAuthToken: authToken,
-      fileName: fileName,
-      data: buffer, // This is the exact buffer we hashed
+      fileName,
+      data: readStream,
       hash: sha1,
-      contentLength: buffer.length, // Use buffer.length to ensure consistency
-      contentType: contentType,
+      contentLength: fileSize,
+      contentType,
       onUploadProgress: (event) => {
         if (progressCallback) {
           const progress = Math.round((event.loaded / fileSize) * 100);
           progressCallback({
             stage: "uploading",
-            progress: progress,
+            progress,
             message: `Uploading: ${progress}%`,
-            fileSize: fileSize,
+            fileSize,
             uploadedBytes: event.loaded,
             uploadSpeed: `${(
               event.loaded /
@@ -634,15 +625,16 @@ const uploadSmallFileOfficial = async (
       },
     });
 
-    const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    const smallUploadDurationMs = Date.now() - startTime;
+    const smallUploadSpeedMBs = (fileSize / (1024 * 1024)) / (smallUploadDurationMs / 1000);
     console.log(
-      `✅ Direct upload completed in ${uploadTime}s: ${result.data.fileName}`
+      `✅ Direct upload completed in ${(smallUploadDurationMs / 1000).toFixed(1)}s: ${result.data.fileName}`
     );
+    console.log(`[Upload Analytics] small_upload_done fileName=${fileName} durationMs=${smallUploadDurationMs} sizeMB=${(fileSize / (1024 * 1024)).toFixed(3)} speedMBs=${smallUploadSpeedMBs.toFixed(3)}`);
 
-    // Verify upload integrity
-    if (result.data.contentLength !== buffer.length) {
+    if (result.data.contentLength !== fileSize) {
       console.warn(
-        `⚠️ Upload size mismatch: uploaded ${result.data.contentLength} bytes, expected ${buffer.length} bytes`
+        `⚠️ Upload size mismatch: uploaded ${result.data.contentLength} bytes, expected ${fileSize} bytes`
       );
     }
 
@@ -652,18 +644,12 @@ const uploadSmallFileOfficial = async (
       );
     }
 
-    console.log(
-      `✅ Upload verification: ${result.data.contentLength} bytes, SHA1: ${
-        result.data.contentSha1 || sha1
-      }`
-    );
-
     if (progressCallback) {
       progressCallback({
         stage: "complete",
         progress: 100,
         message: "Upload complete!",
-        fileSize: fileSize,
+        fileSize,
         uploadedBytes: fileSize,
         uploadSpeed: `${(
           fileSize /
@@ -677,8 +663,8 @@ const uploadSmallFileOfficial = async (
     return {
       fileId: result.data.fileId,
       fileName: result.data.fileName,
-      fileUrl: result.data.fileName, // Store relative path only
-      fileSize: fileSize,
+      fileUrl: result.data.fileName,
+      fileSize,
       uploadTime: Math.round((Date.now() - startTime) / 1000),
     };
   } catch (error) {
@@ -700,47 +686,78 @@ const uploadSmallFileOfficial = async (
   }
 };
 
+/** Cache for real B2 upload speed test (avoid testing on every small file) */
+const NETWORK_SPEED_CACHE_MS = 60000; // 1 minute
+let networkSpeedCache = null;
+let networkSpeedCacheTime = 0;
+
+const DEFAULT_NETWORK_INFO = { speedMbps: 50, networkMultiplier: 1 };
+
 /**
- * Test network speed and get optimal configuration
+ * Test upload speed by performing a real 1MB upload to B2. Result is cached for 1 minute.
+ * On failure (B2 down, auth error, etc.) returns safe defaults without throwing.
  */
 const testNetworkSpeed = async () => {
+  if (networkSpeedCache && Date.now() - networkSpeedCacheTime < NETWORK_SPEED_CACHE_MS) {
+    return networkSpeedCache;
+  }
+
   try {
-    console.log("🌐 Testing network speed...");
-    const startTime = Date.now();
+    await authorize();
+    const uploadUrlResponse = await b2.getUploadUrl({
+      bucketId: process.env.B2_BUCKET_ID,
+    });
+    const uploadUrl = uploadUrlResponse.data.uploadUrl;
+    const authToken = uploadUrlResponse.data.authorizationToken;
 
-    // Test with a small file or network request
-    const testSize = 1024 * 1024; // 1MB test
+    const testSize = 1024 * 1024; // 1MB
     const testBuffer = Buffer.alloc(testSize);
+    const sha1 = calculateSha1(testBuffer);
+    const testFileName = "__speedtest__/probe";
 
-    // Simulate network test (in real implementation, you might ping B2)
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const startTime = Date.now();
+    await b2.uploadFile({
+      uploadUrl,
+      uploadAuthToken: authToken,
+      fileName: testFileName,
+      data: testBuffer,
+      hash: sha1,
+      contentLength: testSize,
+      contentType: "application/octet-stream",
+    });
+    const elapsedMs = Date.now() - startTime;
+    const elapsedSec = Math.max(elapsedMs / 1000, 0.001);
+    const speedMbps = (testSize * 8) / (elapsedSec * 1e6);
 
-    const testTime = (Date.now() - startTime) / 1000;
-    const speedMbps = (testSize * 8) / (testTime * 1024 * 1024); // Convert to Mbps
-
-    console.log(`📊 Network speed: ${speedMbps.toFixed(2)} Mbps`);
-
-    // Adjust concurrency based on network speed
     let networkMultiplier = 1;
     if (speedMbps < 10) {
-      networkMultiplier = 0.5; // Reduce concurrency for slow connections
+      networkMultiplier = 0.5;
       console.log("🐌 Slow connection detected, reducing concurrency");
     } else if (speedMbps > 100) {
-      networkMultiplier = 1.5; // Increase concurrency for fast connections
+      networkMultiplier = 1.5;
       console.log("🚀 Fast connection detected, increasing concurrency");
     }
 
-    return { speedMbps, networkMultiplier };
+    console.log(`📊 Network speed (B2 upload): ${speedMbps.toFixed(2)} Mbps`);
+    console.log(`[Upload Analytics] speed_test durationMs=${elapsedMs} sizeMB=1 speedMbps=${speedMbps.toFixed(2)} multiplier=${networkMultiplier}`);
+    const result = { speedMbps, networkMultiplier };
+    networkSpeedCache = result;
+    networkSpeedCacheTime = Date.now();
+    return result;
   } catch (error) {
-    console.log("⚠️ Could not test network speed, using default settings");
-    return { speedMbps: 50, networkMultiplier: 1 }; // Default values
+    console.log("⚠️ Could not test network speed, using default settings:", error.message);
+    return DEFAULT_NETWORK_INFO;
   }
 };
 
 /**
- * Smart upload that chooses the best method based on file size and network conditions
+ * Smart upload that chooses the best method based on file size and network conditions.
+ * @param {string} filePath - Local file path
+ * @param {string} fileName - B2 destination path
+ * @param {Function|null} progressCallback - Optional progress callback
+ * @param {{ speedMbps: number, networkMultiplier: number }|null} cachedNetworkInfo - If provided, skip speed test (used by HLS batch uploads)
  */
-const uploadFileSmart = async (filePath, fileName, progressCallback = null) => {
+const uploadFileSmart = async (filePath, fileName, progressCallback = null, cachedNetworkInfo = null) => {
   const fileSize = fs.statSync(filePath).size;
   const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB threshold for multipart upload (minimum 2 parts of 6MB each)
 
@@ -752,8 +769,7 @@ const uploadFileSmart = async (filePath, fileName, progressCallback = null) => {
     ).toFixed(2)}MB)`
   );
 
-  // Test network conditions
-  const networkInfo = await testNetworkSpeed();
+  const networkInfo = cachedNetworkInfo != null ? cachedNetworkInfo : await testNetworkSpeed();
 
   if (fileSize >= LARGE_FILE_THRESHOLD) {
     console.log(
@@ -797,5 +813,6 @@ module.exports = {
   uploadLargeFileOfficial,
   uploadSmallFileOfficial,
   uploadFileSmart,
+  testNetworkSpeed,
   testB2Connection,
 };

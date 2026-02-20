@@ -7,7 +7,7 @@ const { successResponse, errorResponse } = require('../utils/apiResponse');
 const socketManager = require('../utils/socketManager');
 const { convertToFullUrl } = require('../utils/urlHelper');
 const fs = require('fs');
-const { addUploadJob, getJobStatus } = require('../utils/uploadQueue');
+const uploadQueueUtil = require('../utils/uploadQueue');
 
 // Configure multer for disk storage to handle large files efficiently
 const storage = multer.diskStorage({
@@ -550,7 +550,7 @@ const queuedUpload = async (req, res, uploadType) => {
     console.log(`📋 [Upload] Queueing ${uploadType} upload: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)}MB)`);
     
     // Add job to queue
-    const { job, uploadJob } = await addUploadJob({
+    const { job, uploadJob } = await uploadQueueUtil.addUploadJob({
       uploadId,
       userId: req.userId,
       uploadType,
@@ -590,26 +590,10 @@ const queuedUpload = async (req, res, uploadType) => {
 };
 
 const queuedUploadVideo = async (req, res) => {
-  // Try queued upload first, fallback to direct upload if queue is unavailable
-  try {
-    // Check if Redis/queue system is available
-    const { isQueueAvailable } = require('../utils/uploadQueue');
-    
-    const queueReady = await isQueueAvailable();
-    
-    if (queueReady) {
-      console.log('📋 [Upload] Queue system available, using queued upload');
-      return queuedUpload(req, res, 'video');
-    } else {
-      throw new Error('Queue system not available');
-    }
-  } catch (queueError) {
-    console.warn('⚠️ [Upload] Queue system unavailable, falling back to direct upload:', queueError.message);
-    console.log('📤 [Upload] Using direct video upload for Azure compatibility');
-    
-    // Fallback to direct upload
-    return unifiedUpload(req, res, 'video');
+  if (uploadQueueUtil.redisAvailable) {
+    return queuedUpload(req, res, 'video');
   }
+  return unifiedUpload(req, res, 'video');
 };
 
 /**
@@ -632,7 +616,7 @@ const getUploadStatus = async (req, res) => {
     console.log(`🔍 [Upload Status] Checking status for: ${uploadId}`);
     
     // Get job status from database
-    const jobStatus = await getJobStatus(uploadId, req.userId);
+    const jobStatus = await uploadQueueUtil.getJobStatus(uploadId, req.userId);
     
     if (!jobStatus) {
       return errorResponse(res, 404, 'Upload job not found', 'The upload ID does not exist or you do not have permission to access it');

@@ -41,4 +41,5 @@ const getSmartUploadConfig = ({ fileSize, networkMbps }) => {
 
 module.exports = {
   getSmartUploadConfig,
+  getConcurrencyBySpeed,
 };

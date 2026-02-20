@@ -85,10 +85,13 @@ const getUploadFolder = (type, uploadType) => {
  */
 const processUploadJob = async (job) => {
   const { uploadId, userId, uploadType, type, tempFilePath, originalFileName, fileSize } = job.data;
-  
+  const jobStartMs = Date.now();
+  const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
+
   console.log(`🎬 [Upload Processor] Starting job: ${uploadId} (${uploadType})`);
-  console.log(`📁 [Upload Processor] File: ${originalFileName} (${(fileSize / 1024 / 1024).toFixed(2)}MB)`);
-  
+  console.log(`📁 [Upload Processor] File: ${originalFileName} (${fileSizeMB}MB)`);
+  console.log(`[Upload Analytics] job_start uploadId=${uploadId} fileSizeMB=${fileSizeMB} ts=${jobStartMs}`);
+
   try {
     // Generate file path for B2
     const fileExt = path.extname(originalFileName).toLowerCase();
@@ -115,15 +118,17 @@ const processUploadJob = async (job) => {
     });
     
     // Upload file to B2 with progress tracking
+    const phaseUploadStartMs = Date.now();
     console.log(`📤 [Upload Processor] Uploading to B2: ${fileName}`);
-    
+    console.log(`[Upload Analytics] phase=original_upload_start fileSizeMB=${(fileSize / (1024 * 1024)).toFixed(2)} ts=${phaseUploadStartMs}`);
+
     // Calculate timeout based on file size: 30 minutes base + 1 minute per 100MB
-    const fileSizeMB = fileSize / (1024 * 1024);
-    const uploadTimeout = Math.max(30 * 60 * 1000, 30 * 60 * 1000 + (fileSizeMB / 100) * 60 * 1000);
+    const fileSizeMBNum = fileSize / (1024 * 1024);
+    const uploadTimeout = Math.max(30 * 60 * 1000, 30 * 60 * 1000 + (fileSizeMBNum / 100) * 60 * 1000);
     const timeoutMinutes = Math.ceil(uploadTimeout / (60 * 1000));
-    
-    console.log(`⏱️ [Upload Processor] Upload timeout set to ${timeoutMinutes} minutes for ${fileSizeMB.toFixed(2)}MB file`);
-    
+
+    console.log(`⏱️ [Upload Processor] Upload timeout set to ${timeoutMinutes} minutes for ${fileSizeMBNum.toFixed(2)}MB file`);
+
     const uploadResult = await Promise.race([
       uploadFileSmart(tempFilePath, fileName, async (progressData) => {
         // Update database
@@ -150,11 +155,14 @@ const processUploadJob = async (job) => {
         setTimeout(() => reject(new Error(`Upload timeout after ${timeoutMinutes} minutes`)), uploadTimeout)
       )
     ]);
-    
+
+    const phaseUploadDurationMs = Date.now() - phaseUploadStartMs;
+    const uploadSpeedMBs = (fileSize / (1024 * 1024)) / (phaseUploadDurationMs / 1000);
     console.log(`✅ [Upload Processor] Upload completed: ${uploadResult.fileUrl}`);
-    
+    console.log(`[Upload Analytics] phase=original_upload_done durationMs=${phaseUploadDurationMs} fileSizeMB=${(fileSize / (1024 * 1024)).toFixed(2)} speedMBs=${uploadSpeedMBs.toFixed(3)}`);
+
     let transcodeResult = null;
-    
+
     // Handle video transcoding
     if (uploadType === 'video') {
       await updateJobProgress(uploadId, {
@@ -172,8 +180,10 @@ const processUploadJob = async (job) => {
         message: 'Starting video transcoding...'
       });
       
+      const phaseTranscodeStartMs = Date.now();
       console.log(`🎬 [Upload Processor] Transcoding video: ${uploadId}`);
-      
+      console.log(`[Upload Analytics] phase=transcode_start ts=${phaseTranscodeStartMs}`);
+
       // Progress callback for transcoding
       const progressCallback = (progressData) => {
         // Update database
@@ -220,7 +230,10 @@ const processUploadJob = async (job) => {
       );
       
       transcodeResult = await Promise.race([transcodePromise, timeoutPromise]);
-      
+
+      const phaseTranscodeDurationMs = Date.now() - phaseTranscodeStartMs;
+      console.log(`[Upload Analytics] phase=transcode_done durationMs=${phaseTranscodeDurationMs}`);
+
       await updateJobProgress(uploadId, {
         stage: 'transcoding',
         progress: 100,
@@ -238,7 +251,10 @@ const processUploadJob = async (job) => {
       
       console.log(`✅ [Upload Processor] Transcoding completed for: ${uploadId}`);
     }
-    
+
+    const jobTotalMs = Date.now() - jobStartMs;
+    console.log(`[Upload Analytics] job_complete uploadId=${uploadId} totalDurationMs=${jobTotalMs} totalDurationSec=${(jobTotalMs / 1000).toFixed(1)}`);
+
     // Prepare result data
     const resultData = uploadType === 'video' ? {
       videoUrl: transcodeResult.videoUrl,

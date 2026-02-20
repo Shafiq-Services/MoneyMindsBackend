@@ -2,8 +2,11 @@ const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { uploadFileSmart } = require('./b2OfficialMultithreaded');
-// getB2S3Url no longer needed - storing relative paths only
+const pLimit = require('p-limit').default;
+const { uploadFileSmart, testNetworkSpeed } = require('./b2OfficialMultithreaded');
+const { getConcurrencyBySpeed } = require('./b2AutoTunedConfig');
+
+const DEFAULT_UPLOAD_CONCURRENCY = 10;
 
 // Use custom binaries only on Linux (e.g., Azure server)
 // On macOS and Windows, use system-installed ffmpeg
@@ -109,13 +112,15 @@ const getVideoFolder = (videoType) => {
 };
 
 const transcodeToHLS = async (videoInput, videoId, videoType = 'film', progressCallback = null) => {
+  const transcodeStartMs = Date.now();
   try {
     // videoInput can be either a file path (string) or buffer (for backward compatibility)
     const isFilePath = typeof videoInput === 'string';
-    
+
     const { width, height, duration } = await getVideoResolution(videoInput);
     const resolutions = generateHLSResolutions(height);
-    
+    console.log(`[Upload Analytics] transcode_start videoId=${videoId} resolutions=${resolutions.length} (${resolutions.map((r) => r.height + "p").join(",")}) durationSec=${duration != null ? duration.toFixed(1) : "?"} ts=${transcodeStartMs}`);
+
     // Use system temp directory to avoid issues with spaces in path
     const os = require('os');
     const systemTempDir = os.tmpdir();
@@ -138,13 +143,25 @@ const transcodeToHLS = async (videoInput, videoId, videoType = 'film', progressC
     }
 
     const masterPlaylist = [];
-    const uploadPromises = [];
-    let completedResolutions = 0;
-
-    // Get organized video folder path
     const videoFolder = getVideoFolder(videoType);
 
-    // Generate HLS for each resolution
+    // One network speed test for entire transcode; pass to all segment uploads so we don't re-test per file
+    let limit;
+    let networkInfo = null;
+    try {
+      networkInfo = await testNetworkSpeed();
+      const concurrency = Math.min(
+        DEFAULT_UPLOAD_CONCURRENCY,
+        Math.max(1, Math.round(getConcurrencyBySpeed(networkInfo.speedMbps) * networkInfo.networkMultiplier))
+      );
+      limit = pLimit(concurrency);
+      console.log(`🌐 [FFmpeg] Upload concurrency: ${concurrency} (${networkInfo.speedMbps.toFixed(1)} Mbps)`);
+    } catch (e) {
+      networkInfo = { speedMbps: 50, networkMultiplier: 1 };
+      limit = pLimit(DEFAULT_UPLOAD_CONCURRENCY);
+      console.log('🌐 [FFmpeg] Using default upload concurrency: 10');
+    }
+
     for (let i = 0; i < resolutions.length; i++) {
       const resolution = resolutions[i];
       const outputPath = path.join(outputDir, `${resolution.height}p`);
@@ -156,11 +173,7 @@ const transcodeToHLS = async (videoInput, videoId, videoType = 'film', progressC
       
       const segmentPath = path.join(outputPath, 'segment_%03d.ts');
       const playlistOutputPath = path.join(outputPath, playlistName);
-      
-      console.log(`📹 [FFmpeg] Resolution ${resolution.height}p paths:`);
-      console.log(`   Input: ${inputPath}`);
-      console.log(`   Output playlist: ${playlistOutputPath}`);
-      console.log(`   Segments: ${segmentPath}`);
+      const resolutionTranscodeStartMs = Date.now();
 
       await new Promise((resolve, reject) => {
         // Capture loop index in closure
@@ -218,7 +231,6 @@ const transcodeToHLS = async (videoInput, videoId, videoType = 'film', progressC
 
         command
           .on('end', () => {
-            completedResolutions++;
             // Final progress update for this resolution
             if (progressCallback) {
               const overallProgress = Math.round(((resolutionIndex + 1) / resolutions.length) * 100);
@@ -235,58 +247,58 @@ const transcodeToHLS = async (videoInput, videoId, videoType = 'film', progressC
           .run();
       });
 
-      // Add to master playlist
+      const resolutionTranscodeDurationMs = Date.now() - resolutionTranscodeStartMs;
+      console.log(`[Upload Analytics] transcode_resolution resolution=${resolution.height}p durationMs=${resolutionTranscodeDurationMs}`);
+
       masterPlaylist.push(`#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(resolution.bitrate.replace('k', '000'))},RESOLUTION=${Math.round(resolution.height * 16/9)}x${resolution.height}`);
       masterPlaylist.push(`${resolution.height}p/${playlistName}`);
 
-      // Upload playlist and segments with organized folder structure
+      // Upload playlist and segments from disk (streamed by B2); max 10 concurrent
       const playlistPath = path.join(outputPath, playlistName);
-      const playlistContent = fs.readFileSync(playlistPath);
-      
-      // Create temp file for upload
-      const tempPlaylistPath = path.join(tempDir, `temp_playlist_${resolution.height}.m3u8`);
-      fs.writeFileSync(tempPlaylistPath, playlistContent);
-      
-      uploadPromises.push(
-        uploadFileSmart(
-          tempPlaylistPath,
-          `${videoFolder}/${videoId}/${resolution.height}p/${playlistName}`
-        )
-      );
-
-      // Upload all segment files
       const segmentFiles = fs.readdirSync(outputPath).filter(file => file.endsWith('.ts'));
-      for (const segmentFile of segmentFiles) {
-        const segmentPath = path.join(outputPath, segmentFile);
-        const segmentContent = fs.readFileSync(segmentPath);
-        
-        // Create temp file for upload
-        const tempSegmentPath = path.join(tempDir, `temp_segment_${segmentFile}`);
-        fs.writeFileSync(tempSegmentPath, segmentContent);
-        
-        uploadPromises.push(
+      const segmentCount = segmentFiles.length;
+      const resolutionLabel = `${resolution.height}p`;
+
+      const resolutionUploadStartMs = Date.now();
+      console.log(`📤 [FFmpeg] Uploading ${resolutionLabel} (${segmentCount} segments)`);
+      console.log(`[Upload Analytics] upload_resolution_start resolution=${resolutionLabel} segmentCount=${segmentCount} ts=${resolutionUploadStartMs}`);
+
+      const resolutionUploads = [
+        limit(() =>
           uploadFileSmart(
-            tempSegmentPath,
-            `${videoFolder}/${videoId}/${resolution.height}p/${segmentFile}`
+            playlistPath,
+            `${videoFolder}/${videoId}/${resolution.height}p/${playlistName}`,
+            null,
+            networkInfo
           )
-        );
-      }
+        ),
+        ...segmentFiles.map((segmentFile) =>
+          limit(() =>
+            uploadFileSmart(
+              path.join(outputPath, segmentFile),
+              `${videoFolder}/${videoId}/${resolution.height}p/${segmentFile}`,
+              null,
+              networkInfo
+            )
+          )
+        ),
+      ];
+      await Promise.all(resolutionUploads);
+
+      const resolutionUploadDurationMs = Date.now() - resolutionUploadStartMs;
+      const resolutionUploadTimeSec = (resolutionUploadDurationMs / 1000).toFixed(1);
+      console.log(`✅ [FFmpeg] ${resolutionLabel} upload complete in ${resolutionUploadTimeSec}s`);
+      console.log(`[Upload Analytics] upload_resolution_done resolution=${resolutionLabel} durationMs=${resolutionUploadDurationMs} segmentCount=${segmentCount}`);
     }
 
-    // Create and upload master playlist with organized folder structure
+    // Create and upload master playlist
     const masterPlaylistContent = `#EXTM3U\n#EXT-X-VERSION:3\n${masterPlaylist.join('\n')}\n`;
     const tempMasterPath = path.join(tempDir, 'temp_master.m3u8');
     fs.writeFileSync(tempMasterPath, Buffer.from(masterPlaylistContent));
-    
-    uploadPromises.push(
-      uploadFileSmart(
-        tempMasterPath,
-        `${videoFolder}/${videoId}/master.m3u8`
-      )
-    );
 
-    // Wait for all uploads to complete
-    await Promise.all(uploadPromises);
+    await limit(() =>
+      uploadFileSmart(tempMasterPath, `${videoFolder}/${videoId}/master.m3u8`, null, networkInfo)
+    );
 
     // Clean up temp files (only if we created them - don't delete original input file)
     if (!isFilePath) {
@@ -311,6 +323,8 @@ const transcodeToHLS = async (videoInput, videoId, videoType = 'film', progressC
     }
 
     const videoUrl = `${videoFolder}/${videoId}/master.m3u8`; // Store relative path only
+    const transcodeTotalMs = Date.now() - transcodeStartMs;
+    console.log(`[Upload Analytics] transcode_done videoId=${videoId} totalDurationMs=${transcodeTotalMs} totalDurationSec=${(transcodeTotalMs / 1000).toFixed(1)}`);
 
     return {
       videoUrl,

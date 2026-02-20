@@ -14,7 +14,8 @@ const socketManager = require("./utils/socketManager");
 const { initializeSubscriptionScheduler } = require("./utils/subscriptionScheduler");
 const subscriptionController = require('./controllers/subscriptionController');
 const subscriptionRoutes = require('./routes/subscription');
-const { uploadQueue } = require('./utils/uploadQueue');
+const uploadQueueModule = require('./utils/uploadQueue');
+const { initUploadQueue } = uploadQueueModule;
 const { processUploadJob } = require('./workers/uploadProcessor');
 
 const app = express();
@@ -48,16 +49,6 @@ socketManager.initialize(server);
 setTimeout(() => {
   initializeSubscriptionScheduler();
 }, 2000); // Wait a bit longer to ensure everything is initialized
-
-// Initialize Bull queue processor for video uploads (only if Redis is configured)
-if (uploadQueue) {
-  console.log('🚀 [Upload Queue] Initializing upload queue processor...');
-  uploadQueue.process(async (job) => {
-    console.log(`📋 [Upload Queue] Processing job: ${job.id}`);
-    return await processUploadJob(job);
-  });
-  console.log('✅ [Upload Queue] Upload queue processor initialized');
-}
 
 // Stripe webhook endpoint
 // This route must be before `express.json()` to receive the raw body
@@ -156,9 +147,24 @@ app.get("/", (req, res) => {
   res.send("Video Streaming Backend API with Upload Progress Tracking is running.");
 });
 
-// Start server
-server.listen(config.PORT, () => {
-  console.log(`Server running on http://localhost:${config.PORT}`);
+// Start server: init Redis at startup (no crash on failure), then listen
+(async () => {
+  await initUploadQueue();
+  const queue = uploadQueueModule.uploadQueue;
+  if (queue) {
+    console.log('🚀 [Upload Queue] Initializing upload queue processor...');
+    queue.process(async (job) => {
+      console.log(`📋 [Upload Queue] Processing job: ${job.id}`);
+      return await processUploadJob(job);
+    });
+    console.log('✅ [Upload Queue] Upload queue processor initialized');
+  }
+  server.listen(config.PORT, () => {
+    console.log(`Server running on http://localhost:${config.PORT}`);
+  });
+})().catch((err) => {
+  console.error('❌ Server startup failed:', err);
+  process.exit(1);
 });
 
 module.exports = app;
